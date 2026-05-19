@@ -1,0 +1,8 @@
+dbt-bigquery==1.8.*
+dagster==1.8.*
+dagster-dbt==0.24.*
+dagster-gcp==0.24.*
+google-cloud-bigquery==3.*
+google-cloud-storage==2.*
+requests==2.*
+python-dotenv==1.*

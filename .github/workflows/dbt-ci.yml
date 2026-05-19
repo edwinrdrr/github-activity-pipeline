@@ -1,0 +1,38 @@
+name: dbt CI
+
+on:
+  pull_request:
+    paths:
+      - 'transform/**'
+      - '.github/workflows/dbt-ci.yml'
+
+env:
+  DBT_PROFILES_DIR: ./transform
+  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/sa.json
+  DBT_CI_RUN_ID: pr${{ github.event.pull_request.number }}
+
+jobs:
+  dbt-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: transform
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - run: pip install -r ../requirements.txt
+
+      - name: Write service-account key
+        run: echo '${{ secrets.GCP_SA_KEY }}' > $GOOGLE_APPLICATION_CREDENTIALS
+
+      - name: Stage profiles.yml
+        run: cp profiles.yml.example profiles.yml
+
+      - run: dbt deps
+      - run: dbt build --target ci --fail-fast

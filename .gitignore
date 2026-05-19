@@ -1,0 +1,41 @@
+# dbt
+target/
+dbt_packages/
+logs/
+profiles.yml
+.user.yml
+.dbt/
+
+# secrets / credentials
+.env
+.env.*
+!.env.example
+*-credentials.json
+service-account*.json
+credentials/
+
+# python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+
+# dagster
+.dagster/
+tmp_dagster_*
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+
+# data
+data/
+*.parquet
+*.csv
+!seeds/**/*.csv

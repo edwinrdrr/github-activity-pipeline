@@ -1,0 +1,40 @@
+name: 'github_activity'
+version: '1.0.0'
+config-version: 2
+
+profile: 'github_activity'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+vars:
+  # Lower bound for partition pruning on the GH Archive source.
+  # Bump forward periodically; full-history backfills are deliberately expensive.
+  gharchive_start_date: '2024-01-01'
+
+models:
+  github_activity:
+    staging:
+      +materialized: view
+      +schema: staging
+    intermediate:
+      +materialized: ephemeral
+      +schema: intermediate
+    marts:
+      +materialized: table
+      +schema: marts
+      facts:
+        +materialized: incremental
+        +on_schema_change: append_new_columns
+
+seeds:
+  github_activity:
+    +schema: seeds
