@@ -39,3 +39,6 @@ data/
 *.parquet
 *.csv
 !**/seeds/**/*.csv
+
+# learning materials — kept local until ready to publish
+docs/learn/
