@@ -4,6 +4,10 @@ A running record of what I built, learned, and got stuck on each week.
 Kept honest — failures, rework, and dead ends included. The point is to
 show how I think and unstick myself, not to look polished.
 
+> For topic-organized notes (lookup, not journal), see
+> [`LEARNING.md`](./LEARNING.md). This file is the journal; that one
+> is the reference.
+
 > **Style guide for entries:** technical reflections, not a diary.
 > Keep each section to 2-5 bullets. If a bullet starts feeling long,
 > it's probably its own future entry or ADR.
