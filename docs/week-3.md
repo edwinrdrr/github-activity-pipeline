@@ -1,7 +1,7 @@
 # Week 3 — GitHub REST API ingestion
 
-> **Status:** ✅ done (shipped 2026-05-20). 6 of 7 verification items
-> confirmed live. Retrospective lives in
+> **Status:** ✅ done (shipped 2026-05-20). All 7 verification items
+> confirmed live (last one closed 2026-05-21). Retrospective lives in
 > [`../LEARNING_LOG.md`](../LEARNING_LOG.md#week-3--github-rest-api-ingestion).
 >
 > Companion to [`docs/plan.md`](./plan.md) (multi-week roadmap) and
@@ -362,11 +362,10 @@ ones that matter.
 - [x] `dbt build --select staging+` fully green (PASS=108 WARN=0 ERROR=0).
 - [x] A purposely-bad target lands in `_failures.ndjson` and doesn't
       fail the run (verified via direct call to `_fetch_table`).
-- [ ] Contributor flow: with `GCS_BUCKET` and `GITHUB_TOKEN` *unset*,
+- [x] Contributor flow: with `GCS_BUCKET` and `GITHUB_TOKEN` *unset*,
       `dbt seed && dbt build --select staging+ --exclude source:github_api`
-      still works using the `*_sample.csv` fixtures. *(Not yet tested
-      live — the sample seeds exist and are wired correctly, but the
-      credential-free path itself wasn't exercised end-to-end.)*
+      works using the `*_sample.csv` fixtures. Verified live on
+      2026-05-21: seeds PASS=2, build PASS=106 WARN=0 ERROR=0.
 
 ## Out of scope
 
