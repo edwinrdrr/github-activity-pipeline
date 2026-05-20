@@ -77,6 +77,55 @@ in `.env` and CLI output. Renaming = recreating the project from
 scratch — not worth it for a portfolio repo, but pause and think for
 real work.
 
+### 📖 Partition-decorator `WRITE_TRUNCATE` for idempotent loads (W3)
+
+When a table is partitioned (`PARTITION BY DATE(ingested_at)`), the
+partition decorator lets you scope a load job to *one partition*:
+
+```python
+partitioned_table = f"{project}.dataset.table${dt.strftime('%Y%m%d')}"
+job_config = bigquery.LoadJobConfig(
+    write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+    ...
+)
+client.load_table_from_uri(gcs_uri, partitioned_table, job_config=job_config)
+```
+
+`WRITE_TRUNCATE` on `table$YYYYMMDD` overwrites *only that partition*.
+Yesterday's data is untouched; today's is replaced. The result is
+*idempotent reruns*: running today's ingestion twice produces the
+same row count as running it once.
+
+The naive alternative — `WRITE_APPEND` on the un-decorated table —
+seems cheaper, but doubles today's rows on every rerun. Week 5 SCD2
+logic on top would then see spurious "changes" daily. The partition-
+decorator pattern is the idiomatic fix.
+
+Caveats: the decorator is a literal `$` (bash users beware), and the
+target table must already be partitioned — you can't decorator-load
+into a non-partitioned table.
+
+### `Storage Object User` vs `Storage Object Admin` (W3)
+
+Both grant object-level read/write/overwrite — i.e., everything a
+GCS extractor actually does. Neither grants `storage.buckets.get`,
+which is what `bucket.exists()` and `client.list_buckets()` call.
+
+If your smoke test calls `bucket.exists()` and 403s, the fix is not
+to escalate to `Storage Admin` (which can delete the bucket); the
+fix is to rewrite the smoke test to upload+download an object,
+which is what production code does anyway. `Storage Object User` is
+the recommended role over `Storage Object Admin` because Google has
+deprecated the latter for new grants.
+
+### Uniform bucket access (W3)
+
+Default for new buckets. Means bucket-level IAM grants are the only
+authoritative source — ACLs (the old per-object permission model)
+are disabled. With Uniform access, granting `Storage Object User`
+on the bucket is sufficient; no project-level grant needed, no
+per-object ACL fiddling.
+
 ---
 
 ## dbt
@@ -143,7 +192,7 @@ You can deviate, but most production projects don't, because the
 convention solves real problems: lineage clarity, test ownership,
 materialization cost, and the "where do I put this CTE" question.
 
-### Seeds vs sources (W2)
+### Seeds vs sources (W2, W3)
 
 **Source** — a table you don't own, already exists in the warehouse.
 Declared in `_sources.yml`. Gives dbt lineage and freshness checks.
@@ -152,9 +201,29 @@ Declared in `_sources.yml`. Gives dbt lineage and freshness checks.
 `dbt seed`. For small static data: enum lookups, country codes, or
 **placeholder data while the real ingestion is being built**.
 
-Week 2 pattern: seeds stand in for the (future) `raw_github_api.*`
-source. Staging refs `ref('repos')` now; one-line swap to
-`source('github_api', 'repos')` once Week 3 ingestion lands.
+The Week 2 → Week 3 pattern: seeds stood in for the (future)
+`raw_github_api.*` source. When real ingestion landed, the swap
+was three lines per stg model (`ref('repos')` → `source('github_api',
+'repos')`). Seeds didn't get deleted — they were renamed to
+`repos_sample.csv` / `users_sample.csv` and kept as dev fixtures, so
+contributors can `dbt seed && dbt build --select staging+ --exclude
+source:github_api` without any GitHub credentials.
+
+### Latest-snapshot dedup in staging (W3)
+
+When raw tables accumulate one row per (entity, day), the staging
+view needs to emit one row per entity. Same pattern as the W2
+gharchive dedup, but with a different ordering key:
+
+```sql
+qualify row_number() over (
+  partition by id order by ingested_at desc
+) = 1
+```
+
+History stays in raw; SCD2 dimensions (Week 5) rebuild it. Keeps
+the staging layer "one current row per entity" — the contract that
+makes its `unique`/`relationships` tests meaningful.
 
 ### `column_types:` in `_seeds.yml` (W2)
 
@@ -347,6 +416,54 @@ exactly as if you'd written the wildcard by hand.
 
 ---
 
+## GitHub REST API
+
+### Rate limits — primary vs secondary (W3)
+
+GitHub enforces two separate rate-limit budgets, surfaced through
+different headers:
+
+| Limit | Trigger | Header to read | Wait strategy |
+|---|---|---|---|
+| Primary | Per-hour quota exhausted | `X-RateLimit-Remaining=0` + `X-RateLimit-Reset` (epoch) | Sleep until `Reset` |
+| Secondary | Burst protection (concurrent/abusive patterns) | `Retry-After` (seconds) | Sleep that many seconds |
+
+Both come back as **HTTP 403** with the headers above — you can't
+tell them apart by status code alone. The extractor's retry wait
+function inspects the headers and dispatches to the right sleep
+value. Unauthenticated: 60/hr. With a PAT (no scopes needed):
+5000/hr.
+
+### Repo transfers follow silently (W3)
+
+`GET /repos/{owner}/{repo}` on a transferred repo returns **HTTP
+200** with the *new* owner/name — not a 404, not a 301 you can
+detect. Example: `github/linguist` now returns `full_name:
+github-linguist/linguist`, `owner.id: 20014732`.
+
+Caught by the FK relationships test in dbt — 2 of 15 repos had
+owner_ids that weren't in the users table. Fix: keep `targets.yml`
+on the canonical (current) names, and add a brief comment noting
+the historical alias.
+
+If you really want to detect transfers in the extractor, compare
+the requested `full_name` against the response `full_name`.
+
+### Fine-grained PAT with zero scopes (W3)
+
+For public-data reads, the token needs **no permissions at all**.
+Choose "Public Repositories (read-only)" for repository access and
+leave everything else blank. The token's only purpose is to lift
+the rate limit from 60/hr to 5000/hr — public reads themselves
+need no auth.
+
+When you pick "Public Repositories (read-only)", GitHub hides the
+"Repository permissions" section entirely. The "Account
+permissions" section stays visible but defaults to `0` — leave it
+alone.
+
+---
+
 ## Tooling & setup
 
 ### Make targets in this repo (W1)
@@ -417,6 +534,59 @@ system Python has a global dbt 1.11.x. They emit different
 deprecation warnings, so a forgotten `source .venv/bin/activate`
 will surface YAML deprecations that don't apply to this project.
 Make targets that wrap dbt should activate the venv if one exists.
+
+### venv-without-pip and the pyenv-shim trap (W3)
+
+If a venv is created with `--without-pip` (or `python -m venv`
+fails to bootstrap pip for some reason), `pip` falls through to
+the next thing on `$PATH` — often a `pyenv` shim. Symptom:
+
+- `which python` → `.venv/bin/python` ✓
+- `which pip`    → `~/.pyenv/shims/pip` ✗
+- `pip install foo` → succeeds, lands in pyenv site-packages
+- `python -c "import foo"` → `ModuleNotFoundError` ✗
+
+Diagnose with `pip show <pkg>` — the `Location:` line gives away
+which interpreter's site-packages it landed in.
+
+Fix:
+```bash
+source .venv/bin/activate
+python -m ensurepip --upgrade
+python -m pip install -r requirements.txt
+```
+
+Long-term hygiene: prefer `python -m pip install` over bare
+`pip install`. The `-m` form forces the *active interpreter* to do
+the install, bypassing PATH ambiguity entirely.
+
+### `tenacity` for retries with a header-aware wait function (W3)
+
+The interesting bit is that `wait` accepts a callable, and that
+callable receives a `retry_state` from which you can pull the
+exception:
+
+```python
+def _retry_wait(retry_state):
+    exc = retry_state.outcome.exception()
+    if isinstance(exc, RetryableHTTPError) and exc.sleep_seconds > 0:
+        return exc.sleep_seconds          # honor the header
+    return wait_exponential(...)(retry_state)  # fall through
+
+retryer = Retrying(
+    retry=retry_if_exception_type(RetryableHTTPError),
+    wait=_retry_wait,
+    stop=stop_after_attempt(5),
+    reraise=True,
+)
+for attempt in retryer:
+    with attempt:
+        ...
+```
+
+Cleaner than chaining `wait_chain` or maintaining external state.
+Tests can patch `tenacity.nap.time.sleep` to verify the wait without
+actually sleeping.
 
 ---
 

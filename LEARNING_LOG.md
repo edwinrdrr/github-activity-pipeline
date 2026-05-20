@@ -80,6 +80,44 @@ show how I think and unstick myself, not to look polished.
 
 ---
 
+## Week 3 — GitHub REST API ingestion
+**Dates:** 2026-05-20 → 2026-05-20
+**Hours:** ~_TBD_
+
+### What I built
+- `ingestion/github_api_extractor.py` — a standalone Python module that fetches `/repos/{owner}/{repo}` and `/users/{login}` snapshots, writes NDJSON to GCS, and loads into BigQuery via `client.load_table_from_uri`. Three CLI verbs (`fetch`, `load`, `run`) split GCS-write from BQ-load so GCS is a true replayable archive.
+- `ingestion/targets.yml` — 15 curated repos + 20 users, with an `enabled:` flag per entry. Owner integrity preserved: every repo owner appears in users (FK invariant for staging).
+- Rate-limit-aware retries: `tenacity` decorator + custom wait function that reads `X-RateLimit-Reset` (primary limit) and `Retry-After` (secondary limit). 404 routes to a `_failures.ndjson` sidecar in GCS rather than aborting the run.
+- BigQuery tables created with `PARTITION BY DATE(ingested_at)` and loaded with **partition-scoped `WRITE_TRUNCATE`** via the `table$YYYYMMDD` decorator — re-running today's job overwrites today's partition instead of double-counting. This is the only way SCD2 will work cleanly in Week 5.
+- 20 unit tests (`pytest` + `responses`) covering: column projection, drop-unknown-keys discipline, 5xx retry, 404 sidecar, both rate-limit paths, organization-vs-user account handling, and a schema-shape assertion that pins the BQ columns to what the Week 2 staging models expect.
+- dbt source/seed swap: uncommented `_sources.yml`, switched `stg_github_api__{repos,users}` from `ref('repos'/'users')` to `source('github_api', …)`, renamed seeds to `*_sample.csv` as dev fixtures (per ADR 0002 — kept, not deleted). Staging models now `qualify row_number() over (partition by id order by ingested_at desc) = 1` to keep just the latest snapshot per id (history lives in raw for Week 5).
+- ADR 0002 (ingestion strategy), `week-3-plan.md`, `workflow.md`, `setup-week-2.md`, `setup-week-3.md`. The plan-first commits set the bar before any extractor code was written.
+- `scripts/smoketest_gcs.py` — reusable connectivity diagnostic. Tests `objects.create` + `objects.get`, the same permissions the extractor uses, rather than `buckets.get` (which `Storage Object User` doesn't grant).
+
+### What I learned
+- **`Storage Object User` ≠ `Storage Object Admin`, and neither grants `storage.buckets.get`.** I burned 30 min trying to get `bucket.exists()` to work before realizing the test was over-specified. The extractor never calls `buckets.get`; the smoke test shouldn't either. Lesson: write the smoke test against the real operations the system performs, not a "feels related" probe.
+- **Partition-scoped `WRITE_TRUNCATE` is the BigQuery idempotency primitive.** Format: `table_id$YYYYMMDD`. Combined with `WRITE_TRUNCATE`, the load job overwrites that partition only, leaving other partitions untouched. Verified live: two consecutive `run` invocations produced identical row counts (15/20, not 30/40). Without this, SCD2 in Week 5 would see spurious "changes" on every re-run.
+- **`tenacity`'s `wait` parameter accepts a callable**, which can introspect the exception via `retry_state.outcome.exception()`. That's how the rate-limit handler honors `X-RateLimit-Reset` (sleep until exact reset epoch) vs falling back to exponential backoff for plain 5xx. Cleaner than chaining `wait_chain` or maintaining external state.
+- **NDJSON's "one row per line" rule is opinionated for a reason.** BigQuery's loader streams it line-by-line — no in-memory parse, no array bracketing to balance, no schema-recoded edge cases. `json.dumps(row, separators=(",", ":"))` + `"\n".join(...)` produces exactly what the loader wants in one pass.
+- **GitHub silently follows repo-transfer redirects on the API.** Requested `github/linguist`, got back `full_name: github-linguist/linguist` and a fresh `owner.id`. The FK relationships test caught this on Week 3's first dbt build — 2 of 15 repos had owner_ids missing from users. Right fix: update `targets.yml` to the canonical post-transfer names. Wrong-but-tempting fix: drop the relationships test severity to warn.
+- **`pip` resolved through `pyenv` shims instead of the venv** because the venv was created `--without-pip`. Result: `pip install` succeeded but installed packages into pyenv's site-packages, invisible to venv python. Fix: `python -m ensurepip --upgrade` inside the activated venv, then re-run `python -m pip install -r requirements.txt`. The `python -m pip` form is the safe default — bypasses PATH shadowing entirely.
+- **`uniform bucket access` (the default for new buckets) means project-level Storage roles don't override bucket-level IAM**, and vice versa. Granting `Storage Object User` *on the bucket* is enough; you don't also need a project-level grant.
+
+### What I got stuck on
+- **`pip install -r requirements.txt` succeeded but `import pytest` failed.** The shim/venv mismatch was confusing because `pip list` *did* show pytest installed — just in the wrong site-packages. The smoking gun was `pip show pytest` printing a Location under `~/.pyenv/versions/3.11.7/`, not under `.venv/`. Solved by bootstrapping pip into the venv via `ensurepip`.
+- **First end-to-end smoke test failed with `Forbidden 403` on `bucket.exists()`** even after I granted `Storage Object Admin`. Took longer than it should have to realize *neither* the Admin nor User role includes `storage.buckets.get`. The wrong-fix instinct was to chase more permissive roles; the right fix was to test what actually mattered (object writes).
+- **GitHub `/users/{login}` for organizations** returns `type: Organization` and (sensibly) `following: 0`, but for individuals returns `following: <int>`. Briefly worried the schema would have to distinguish; turns out a single nullable INTEGER column handles both — orgs just have a literal 0.
+- **Partition decorator syntax** is `table$YYYYMMDD` with a literal dollar sign — bash users beware, it interpolates. In Python it's fine as a literal string. The shape of the format string (`{table_id}${partition_id}`) was a brief surprise — looks like a typo but isn't.
+
+### Open questions / to revisit
+- **Schema drift detection.** `ignore_unknown_values=True` lets the loader silently drop new GitHub response fields. Useful for resilience, but it means we won't notice if GitHub adds something interesting until someone hand-inspects raw. Could log a warning by diff'ing the response keyset against a recorded baseline. Defer until Week 6 (when orchestration could surface the alert).
+- **Targets list — static vs derived.** ADR 0002 explicitly defers the gharchive-top-N derivation. The current list is curated and small. Worth revisiting in Week 7 as a portfolio-storytelling angle ("pipeline feeds its own ingestion targets").
+- **`uv` migration.** Now that the venv has working pip, this is mostly fine, but `uv` was mentioned in `setup.md` as the default fast path. If I rebuild the venv, switching to `uv venv` would avoid the `--without-pip` trap by default.
+- **Storage cost forecasting.** The bucket has no lifecycle rule. At one ~5KB NDJSON per table per day × 2 tables, storage cost is rounding-error for years. Will revisit if I scale targets up materially.
+- **Week 5 dim_users SCD2 implications.** The staging view now keeps only the *latest* snapshot. SCD2 will reconstruct history by reading raw_github_api directly (since that's where every day's snapshot accumulates). Worth a sketch in `week-5-plan.md` before starting.
+
+---
+
 ## Entry template (copy for each new week)
 
 ```
