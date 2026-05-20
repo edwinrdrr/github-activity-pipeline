@@ -6,6 +6,13 @@ with source as (
     where _TABLE_SUFFIX >= format_date('%Y%m', date('{{ var("gharchive_start_date") }}'))
 ),
 
+deduped as (
+    -- GH Archive occasionally publishes the same event twice within a monthly
+    -- table (polling overlap). Rows are exact duplicates, so any tie-breaker works.
+    select * from source
+    qualify row_number() over (partition by id order by created_at) = 1
+),
+
 renamed as (
     select
         id                         as event_id,
@@ -20,7 +27,7 @@ renamed as (
         org.login                  as org_login,
         public                     as is_public,
         payload                    as event_payload
-    from source
+    from deduped
 )
 
 select * from renamed

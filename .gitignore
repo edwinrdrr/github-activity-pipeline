@@ -38,4 +38,4 @@ tmp_dagster_*
 data/
 *.parquet
 *.csv
-!seeds/**/*.csv
+!**/seeds/**/*.csv

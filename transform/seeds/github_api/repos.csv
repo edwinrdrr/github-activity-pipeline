@@ -1,0 +1,7 @@
+id,node_id,name,full_name,owner_id,owner_login,description,fork,language,stargazers_count,watchers_count,forks_count,open_issues_count,archived,created_at,pushed_at,ingested_at
+10270250,MDEwOlJlcG9zaXRvcnkxMDI3MDI1MA==,react,facebook/react,69631,facebook,The library for web and native user interfaces.,false,JavaScript,228000,228000,46700,920,false,2013-05-24T16:15:54Z,2026-05-19T12:00:00Z,2026-05-20T00:00:00Z
+41881900,MDEwOlJlcG9zaXRvcnk0MTg4MTkwMA==,vscode,microsoft/vscode,6154722,microsoft,Visual Studio Code,false,TypeScript,162000,162000,28600,7800,false,2015-09-03T20:23:38Z,2026-05-19T18:00:00Z,2026-05-20T00:00:00Z
+715623,MDEwOlJlcG9zaXRvcnk3MTU2MjM=,linguist,github/linguist,9919,github,Language Savant. If your repository's language is being reported incorrectly send us a pull request!,false,Ruby,12500,12500,4350,250,false,2010-05-26T19:39:48Z,2026-05-15T09:00:00Z,2026-05-20T00:00:00Z
+2325298,MDEwOlJlcG9zaXRvcnkyMzI1Mjk4,linux,torvalds/linux,1024025,torvalds,Linux kernel source tree,false,C,180000,180000,55800,320,false,2011-09-04T22:48:12Z,2026-05-20T03:00:00Z,2026-05-20T00:00:00Z
+23,MDEwOlJlcG9zaXRvcnkyMw==,grit,mojombo/grit,1,mojombo,**Grit is no longer maintained. Check out libgit2/rugged.**,false,Ruby,1900,1900,500,30,true,2007-10-29T14:37:16Z,2014-05-15T20:00:00Z,2026-05-20T00:00:00Z
+1296269,MDEwOlJlcG9zaXRvcnkxMjk2MjY5,Hello-World,octocat/Hello-World,583231,octocat,My first repository on GitHub!,false,,2400,2400,2200,1500,false,2011-01-26T19:01:12Z,2024-11-04T15:00:00Z,2026-05-20T00:00:00Z

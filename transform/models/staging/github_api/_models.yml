@@ -1,0 +1,110 @@
+version: 2
+
+models:
+  - name: stg_github_api__repos
+    description: |
+      One row per repo, sourced from the GitHub REST `/repos` endpoint. Renames API
+      fields to project conventions. Week 2: backed by seeds; Week 3 swaps to
+      `source('github_api', 'repos')`.
+    columns:
+      - name: repo_id
+        description: "GitHub repository numeric id. PK."
+        data_tests:
+          - not_null
+          - unique
+      - name: repo_node_id
+        description: "GraphQL node id (opaque)."
+      - name: repo_name
+        description: "Short repo name (no owner prefix)."
+      - name: repo_full_name
+        description: "owner/repo string, e.g. facebook/react."
+        data_tests:
+          - not_null
+      - name: owner_id
+        description: "Owner's user/org id. FK to stg_github_api__users.user_id."
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('stg_github_api__users')
+              field: user_id
+      - name: owner_login
+        description: "Owner's login at snapshot time."
+      - name: repo_description
+        description: "Short repo description; may be null."
+      - name: is_fork
+        description: "True if this repo is a fork."
+        data_tests:
+          - not_null
+      - name: primary_language
+        description: "GitHub-detected primary language; may be null for empty/docs-only repos."
+      - name: stargazers_count
+        description: "Star count at snapshot time."
+      - name: watchers_count
+        description: "Watcher count (GitHub returns this equal to stargazers_count in current API)."
+      - name: forks_count
+        description: "Fork count at snapshot time."
+      - name: open_issues_count
+        description: "Open issues + open PRs (GitHub combines them in this counter)."
+      - name: is_archived
+        description: "True if the repo is archived (read-only)."
+        data_tests:
+          - not_null
+      - name: repo_created_at
+        description: "Timestamp the repo was created on GitHub."
+        data_tests:
+          - not_null
+      - name: repo_pushed_at
+        description: "Last push timestamp at snapshot time."
+      - name: ingested_at
+        description: "When the ingestion script captured this row."
+        data_tests:
+          - not_null
+
+  - name: stg_github_api__users
+    description: |
+      One row per user or organization, sourced from the GitHub REST `/users` endpoint.
+      `user_type` disambiguates User vs Organization (and rarely Bot). Week 2:
+      backed by seeds; Week 3 swaps to `source('github_api', 'users')`.
+    columns:
+      - name: user_id
+        description: "GitHub user/org numeric id. PK."
+        data_tests:
+          - not_null
+          - unique
+      - name: user_node_id
+        description: "GraphQL node id (opaque)."
+      - name: user_login
+        description: "Username or org slug at snapshot time."
+        data_tests:
+          - not_null
+          - unique
+      - name: user_type
+        description: "Account type — User, Organization, or Bot."
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: [User, Organization, Bot]
+      - name: is_site_admin
+        description: "True if the account is a GitHub staff member."
+        data_tests:
+          - not_null
+      - name: user_name
+        description: "Display name (different from login); may be null."
+      - name: user_company
+        description: "Company string as the user set it; free-form, may be null."
+      - name: user_location
+        description: "Location string as the user set it; free-form, may be null."
+      - name: public_repos
+        description: "Count of public repos owned by this account."
+      - name: followers
+        description: "Follower count."
+      - name: following
+        description: "Following count (always 0 for organizations)."
+      - name: user_created_at
+        description: "Account creation timestamp."
+        data_tests:
+          - not_null
+      - name: ingested_at
+        description: "When the ingestion script captured this row."
+        data_tests:
+          - not_null

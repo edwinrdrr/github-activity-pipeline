@@ -1,0 +1,69 @@
+version: 2
+
+seeds:
+  - name: repos
+    description: |
+      Placeholder GitHub /repos snapshots — stand-in for `raw_github_api.repos`
+      until the Week 3 REST API ingestion lands. Column shape mirrors what the
+      eventual ingestion will produce (REST response flattened, plus `ingested_at`).
+    config:
+      column_types:
+        created_at: timestamp
+        pushed_at: timestamp
+        ingested_at: timestamp
+    columns:
+      - name: id
+        description: "GitHub repository numeric id."
+        data_tests:
+          - not_null
+          - unique
+      - name: full_name
+        description: "owner/repo, e.g. facebook/react."
+        data_tests:
+          - not_null
+      - name: owner_id
+        description: "Owner's user/org id. FK → users.id."
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('users')
+              field: id
+      - name: archived
+        description: "True if the repo is archived (read-only)."
+        data_tests:
+          - not_null
+      - name: ingested_at
+        description: "Timestamp the ingestion script captured this row."
+        data_tests:
+          - not_null
+
+  - name: users
+    description: |
+      Placeholder GitHub /users snapshots — stand-in for `raw_github_api.users`
+      until Week 3. Includes both User and Organization accounts; type column
+      disambiguates.
+    config:
+      column_types:
+        created_at: timestamp
+        ingested_at: timestamp
+    columns:
+      - name: id
+        description: "GitHub user/org numeric id."
+        data_tests:
+          - not_null
+          - unique
+      - name: login
+        description: "Username or org slug."
+        data_tests:
+          - not_null
+          - unique
+      - name: type
+        description: "Account type — User, Organization, or Bot."
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: [User, Organization, Bot]
+      - name: ingested_at
+        description: "Timestamp the ingestion script captured this row."
+        data_tests:
+          - not_null

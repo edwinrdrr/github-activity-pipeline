@@ -1,0 +1,65 @@
+version: 2
+
+models:
+  - name: stg_gharchive__events
+    description: "Cleaned, renamed GH Archive event stream. One row per public GitHub event."
+    columns:
+      - name: event_id
+        description: |
+          GH Archive event id (string). Unique per event. The `unique` test is
+          scoped to the last 7 days via config.where — testing uniqueness across
+          the full ~3B-row view would scan TBs every run. The 7-day window is a
+          cheap canary that still catches ingestion bugs quickly.
+        data_tests:
+          - not_null
+          - unique:
+              config:
+                where: "event_date >= date_sub(current_date(), interval 7 day)"
+      - name: event_type
+        description: "Event class, e.g. PushEvent, PullRequestEvent. Closed set of GitHub event types — the test below warns when a new one appears."
+        data_tests:
+          - not_null
+          - accepted_values:
+              values:
+                - PushEvent
+                - PullRequestEvent
+                - IssuesEvent
+                - IssueCommentEvent
+                - PullRequestReviewEvent
+                - PullRequestReviewCommentEvent
+                - WatchEvent
+                - ForkEvent
+                - CreateEvent
+                - DeleteEvent
+                - ReleaseEvent
+                - PublicEvent
+                - MemberEvent
+                - GollumEvent
+                - CommitCommentEvent
+                - DiscussionEvent
+              config:
+                severity: warn
+      - name: event_at
+        description: "Event timestamp (UTC)."
+        data_tests:
+          - not_null
+      - name: event_date
+        description: "Date portion of event_at, derived for partitioning downstream."
+        data_tests:
+          - not_null
+      - name: actor_id
+        description: "GitHub user id of the actor performing the event."
+      - name: actor_login
+        description: "GitHub login of the actor at event time (denormalized; can change over time)."
+      - name: repo_id
+        description: "GitHub repository id."
+      - name: repo_full_name
+        description: "owner/repo string at event time (denormalized; renames are not back-filled)."
+      - name: org_id
+        description: "GitHub organization id if the repo belongs to one; null otherwise."
+      - name: org_login
+        description: "GitHub organization login if applicable."
+      - name: is_public
+        description: "Always true in GH Archive (only public events are published)."
+      - name: event_payload
+        description: "Raw event payload JSON. Schema varies by event_type; flattened downstream as needed."
