@@ -50,37 +50,41 @@ Mermaid version deferred to the Week 8 README per
 
 ## Layer-by-layer
 
-### Sources                          ✅ partially
+### Sources                          ✅ done
 - **GH Archive** — `githubarchive.month.YYYYMM` BigQuery public
   dataset. Every public GitHub event since 2011. Queried directly
   via `_TABLE_SUFFIX` partition pruning; no copy of data.
 - **GitHub REST API** — `api.github.com/repos/{owner}/{repo}`,
-  `api.github.com/users/{login}`. Daily snapshots of metadata only.
-  ⏳ wired in Week 3.
+  `api.github.com/users/{login}`. Daily snapshots of metadata,
+  fetched by the Week 3 extractor.
 
-### Ingestion                        ⏳ Week 3
+### Ingestion                        ✅ done
 - `ingestion/github_api_extractor.py` — pure Python module (no
   Dagster dependency, per [`structure.md`](./structure.md#ingestion--python-extractors)).
 - Fetches a curated list of repos and users
   (`ingestion/targets.yml`), writes NDJSON to GCS partitioned by
   date, loads into BigQuery via `client.load_table_from_uri`.
-- Rate-limit-aware via `tenacity`. Detailed plan:
-  [`week-3-plan.md`](./week-3-plan.md).
+- Rate-limit-aware via `tenacity`. CLI: `fetch`, `load`, `run`.
+- Manual invocation today; ⏳ Dagster wiring in Week 6.
 
-### Raw layer (BigQuery)             ✅ partially
+### Raw layer (BigQuery)             ✅ done
 - `githubarchive.month.*` — external public dataset (we don't own,
   don't copy, read-only with pruning).
-- `<project>.raw_github_api.repos`, `<project>.raw_github_api.users` — ⏳ Week 3.
-  Partitioned by `DATE(ingested_at)`; loaded with partition-scoped
+- `<project>.raw_github_api.repos`, `<project>.raw_github_api.users` —
+  partitioned by `DATE(ingested_at)`, loaded with partition-scoped
   `WRITE_TRUNCATE` so re-runs of the same day are idempotent.
+  Accumulates one snapshot per entity per day; the basis for Week 5
+  SCD2.
 
 ### Staging (dbt)                    ✅ done
 - `stg_gharchive__events` — one row per public GitHub event,
   deduplicated (GH Archive occasionally publishes duplicates),
   renamed and cast.
-- `stg_github_api__repos`, `stg_github_api__users` — current build
-  is placeholder-seeded; Week 3 swaps them to read from
-  `raw_github_api.*`.
+- `stg_github_api__repos`, `stg_github_api__users` — read from
+  `source('github_api', …)`; latest-snapshot dedup via
+  `qualify row_number() over (partition by id order by ingested_at desc)`.
+- Sample seeds (`*_sample.csv`) kept as dev fixtures for
+  credential-free contributor flows.
 - All staging models are *views*. Light renames, casts, dedup only.
   No joins, no business logic.
 
