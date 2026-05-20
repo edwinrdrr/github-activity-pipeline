@@ -21,6 +21,7 @@ show how I think and unstick myself, not to look polished.
 - `_sources.yml` with freshness checks on GH Archive + planned `raw_github_api` enrichment tables.
 - `_staging__models.yml` with `not_null` + `accepted_values` tests, plus the custom singular test `assert_no_future_events.sql`.
 - Docs: `setup.md`, `plan.md`, `structure.md` (with a provenance section explaining what's convention vs. bespoke).
+- `Makefile` at the project root wrapping `dbt` commands. `include .env` + `export` removes the per-shell `set -a && source .env && set +a` ritual — Make loads the file once and exports every var to recipe subshells, which is what dbt's `env_var()` actually reads.
 
 ### What I learned
 - **dbt's three-layer model** (staging → intermediate → marts) is convention, not framework — `dbt init` doesn't generate it. The structure has to be set up deliberately.
@@ -36,7 +37,7 @@ show how I think and unstick myself, not to look polished.
 - **Relative `DBT_PROFILES_DIR=./transform` breaks once you `cd transform`** — resolves to `transform/transform/`. Switched to absolute path. Documented as a trade-off vs. direnv / `~/.dbt/profiles.yml` in `setup.md`.
 
 ### Open questions / to revisit
-- The `accepted_values` test on `event_type` warned — there are event types in GH Archive not in my starter enum. Need to `SELECT DISTINCT event_type` and decide: expand the enum, or accept the warn as a known limitation.
+- The `accepted_values` test on `event_type` warned — there are event types in GH Archive not in my starter enum. **Deferred to Week 2** (folded into the "`dbt build` green" deliverable): `SELECT DISTINCT event_type` from the staging view, then either expand the enum or downgrade the test to a documented warn.
 - Catalog generation warned about missing datasets (`dbt_dev_edwin`, `raw_github_api`). The first will resolve naturally once non-staging models exist; the second once Week 3 ingestion lands. Worth confirming the warnings disappear then.
 - Should I migrate from `requirements.txt` to `pyproject.toml` + `uv.lock` for reproducibility? Defer to Week 2.
 - Worth adopting direnv locally to replace the hardcoded `DBT_PROFILES_DIR` absolute path? Defer until friction shows up on another machine.
