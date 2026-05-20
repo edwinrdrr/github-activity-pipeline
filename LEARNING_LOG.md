@@ -44,6 +44,38 @@ show how I think and unstick myself, not to look polished.
 
 ---
 
+## Week 2 — Fleshing out the staging layer
+**Dates:** 2026-05-20 → 2026-05-20
+**Hours:** ~_TBD_
+
+### What I built
+- `stg_github_api__repos` and `stg_github_api__users` — placeholder views backed by dbt seeds (`seeds/github_api/{repos,users}.csv`) until Week 3 ingestion lands. CSV columns match what the eventual REST extractor will produce, so the swap will be one-line per file.
+- Full column-level documentation across all three `stg_*` models, plus `not_null` / `unique` / `relationships` / `accepted_values` tests where they make semantic sense.
+- Second custom singular test: `assert_orgs_dont_follow.sql` — encodes the GitHub guarantee that Organization accounts always have `following = 0`. Joins to no other models, so it's a cheap canary on a real source-data invariant.
+- Refactored `models/staging/` into per-source subfolders (`gharchive/`, `github_api/`). Each subfolder has its own `_sources.yml` and `_models.yml`. Matches the dbt Labs canonical layout and resolves two `dbt_project_evaluator` warnings.
+- Added a cost-aware `unique` test on `event_id` scoped to the last 7 days via `config.where`. The full ~3B-row view would scan TBs every test run; the rolling window is cheap and still a useful canary.
+
+### What I learned
+- **GH Archive emits duplicate rows.** Same `id`, same `created_at`, same everything — appears twice within one monthly table. Surfaced when the new `unique` test failed with 165 dupes. Fixed with `qualify row_number() over (partition by id order by created_at) = 1` in staging. Industry pattern: dedupe at the seam where you first own the data.
+- **dbt seed CSVs need explicit `column_types` for timestamps.** dbt's loader infers `DATETIME` for ISO strings, but BigQuery's `DATETIME` has no timezone — the trailing `Z` makes the load fail. Set `column_types.created_at: timestamp` in `_seeds.yml`. Type inference is fine for ints / bools / strings.
+- **`following` is a BigQuery reserved keyword** (window functions: `ROWS BETWEEN ... FOLLOWING`). Hit a "Syntax error: Expected )" on first run of `stg_github_api__users`. Backtick-escape: `` `following` ``.
+- **`dbt_project_evaluator` is worth installing early.** It surfaces structural opinions (per-source subfolders, PK tests) as test failures during `dbt build`, so they get fixed when the project is small rather than during a Week-7 cleanup spike.
+- **Discovered missing event type empirically.** `SELECT DISTINCT event_type` showed `DiscussionEvent` in the data — added it to the `accepted_values` enum. Resolved Week 1's open question without me having to remember it; the test caught it.
+- **`dbt show --inline` is the right tool for ad-hoc BQ queries** when there's no `bq` CLI. Routes through the existing dbt connection, respects `env_var()`, no extra auth.
+
+### What I got stuck on
+- **`git mv` failed on the untracked staging models** (they were `Untracked` from the previous step, never committed yet). Fix: regular `mv` works fine for untracked files. Confused for ~1 minute by the "fatal: bad source" error.
+- **First seed load failed with confusing BigQuery error**: `Invalid datetime string "2013-05-24T16:15:54Z"`. The actual issue (DATETIME vs TIMESTAMP) wasn't obvious from the message — `Z` is valid for both in ISO 8601, but BQ's DATETIME explicitly disallows it. Took a re-read of the error to spot `column_type: DATETIME`.
+- **`event_id` `unique` test failure made me briefly doubt the staging model.** Dropped into a `dbt show --inline ... group by event_id having count(*) > 1` to inspect — duplicates were exact-row matches across `id`, `type`, `created_at`, `actor_id`, `repo_id`, confirming the source is what's emitting dupes. Useful pattern: assume your model first, then verify against source.
+
+### Open questions / to revisit
+- **Week 3 source/seed swap mechanics.** Once `raw_github_api.{repos,users}` exist in BigQuery: uncomment the source block in `github_api/_sources.yml`, swap each stg `ref('repos')` / `ref('users')` to `source('github_api', '<table>')`, drop the seeds. Should be a clean 4-line change.
+- **`accepted_values` severity stays `warn`** — when do we promote to `error`? Probably once the broader marts layer is stable in Week 6-7 and we're confident no new event type would silently break joins. Until then, warn = canary.
+- **Cost ceiling on the rolling unique test** — the 7-day window is intuitive but unmeasured. Worth checking `bytes_processed` on a test run and tuning if it's bigger than expected.
+- **dbt 1.8 vs 1.11 split.** venv has 1.8.7 (matches `setup.md`); a global system install (1.11.5) shows up if I forget to activate the venv. The 1.11 install warns about two future-deprecated YAML patterns (`freshness` top-level, `arguments` wrapper on tests). Defer the upgrade — 1.8 is fine for the rest of the plan and the deprecation warnings only fire on the global dbt.
+
+---
+
 ## Entry template (copy for each new week)
 
 ```
