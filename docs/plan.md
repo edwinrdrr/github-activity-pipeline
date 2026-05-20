@@ -82,6 +82,7 @@ where the friction is highest (Weeks 1, 4, 5).
 
 **Goal:** a Python script lands fresh repo/user metadata into BigQuery.
 **Effort:** ~8-10 hours (heaviest week before modeling).
+**Detailed plan:** [week-3-plan.md](./week-3-plan.md)
 
 ### Deliverables
 - [ ] `ingestion/github_api_extractor.py` calls the REST API with rate-limit handling

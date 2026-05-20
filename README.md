@@ -4,7 +4,8 @@ End-to-end data engineering project: GitHub Archive + GitHub REST API → BigQue
 
 **Live dashboard:** _(link goes here once Looker Studio is published)_
 **dbt docs:** _(GitHub Pages link goes here)_
-**Learning log:** [LEARNING_LOG.md](./LEARNING_LOG.md)
+**Workflow:** [docs/workflow.md](./docs/workflow.md) — end-to-end pipeline diagram + per-layer status
+**Learning log:** [LEARNING_LOG.md](./LEARNING_LOG.md) (journal) · [LEARNING.md](./LEARNING.md) (topic reference)
 
 ## Problem
 
