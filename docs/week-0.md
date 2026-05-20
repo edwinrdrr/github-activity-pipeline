@@ -210,6 +210,111 @@ The "re-source" step is the one that catches almost everyone the first
 time. **Editing `.env` does not update your open shell** — you have to
 re-run `set -a && source .env && set +a` after every edit.
 
+## 8. GitHub SSH key for `git push` (~5 min)
+
+`dbt debug` confirms your local build works. To **push commits** to
+GitHub you also need an authenticated identity — by default a freshly
+cloned HTTPS remote can't push, because GitHub deprecated password
+auth and the URL has no credentials attached. SSH is the cleanest
+fix: one-time setup, no token rotation.
+
+> Why not the GitHub PAT we set in `week-3.md`? That one is
+> fine-grained, scoped to **public repositories (read-only)** —
+> intentionally weak, only for lifting the REST API rate limit. It
+> cannot push to your repo.
+
+### 8.1. Generate an ed25519 key
+
+```bash
+ssh-keygen -t ed25519 -C "<your-github-email>" -f ~/.ssh/id_ed25519 -N ""
+```
+
+- `-t ed25519` — the modern algorithm (smaller and faster than RSA).
+- `-C` — a comment baked into the public key; GitHub displays it in
+  your key list. Use your GitHub email.
+- `-f` — output path. Default key name on Linux is `~/.ssh/id_ed25519`.
+- `-N ""` — empty passphrase. Add one if you want extra security at
+  the cost of typing it on every push (ssh-agent can cache it).
+
+This writes two files:
+
+```
+~/.ssh/id_ed25519       # private key — never share, never commit
+~/.ssh/id_ed25519.pub   # public key — safe to paste anywhere
+```
+
+### 8.2. Add the public key to GitHub
+
+```bash
+cat ~/.ssh/id_ed25519.pub
+```
+
+Copy the entire line of output. Then in the browser:
+
+1. Open https://github.com/settings/keys.
+2. Click **New SSH key**.
+3. **Title:** describe the machine (e.g. `edwin-vivobook`). It's a
+   label for you — pick something so you can revoke this specific
+   key later if the laptop goes missing.
+4. **Key type:** `Authentication Key` (the default).
+5. **Key:** paste the entire `ssh-ed25519 …` line.
+6. Click **Add SSH key**. GitHub may prompt you to confirm with your
+   account password — that's a sudo-equivalent reauthentication, not
+   the auth method we're setting up.
+
+### 8.3. Switch the remote URL from HTTPS to SSH
+
+```bash
+cd /path/to/github-activity-pipeline
+git remote set-url origin git@github.com:<you>/github-activity-pipeline.git
+git remote -v   # both lines should now start with git@github.com:
+```
+
+### 8.4. Verify
+
+```bash
+ssh -T git@github.com
+```
+
+**Success check:** `Hi <you>! You've successfully authenticated, but
+GitHub does not provide shell access.` That second clause is
+expected — SSH on GitHub is for git only, not for opening a remote
+shell.
+
+The first time, SSH will also prompt:
+
+```
+The authenticity of host 'github.com (140.x.x.x)' can't be established.
+ED25519 key fingerprint is SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU.
+Are you sure you want to continue connecting (yes/no/[fingerprint])?
+```
+
+Type `yes`. This adds GitHub's host key to `~/.ssh/known_hosts` so
+future connections skip the prompt. The fingerprint above is
+GitHub's published ed25519 — worth comparing it to
+https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
+the first time to confirm you're not being MITM'd.
+
+### 8.5. Push
+
+```bash
+git push origin main
+```
+
+If you have local commits ahead of `origin/main`, they'll all upload
+in one round trip. From this point on, every `git push` /
+`git pull` / `git fetch` uses your SSH key silently — no prompts,
+no tokens to rotate.
+
+### Troubleshooting
+
+| What you see | What it means | Fix |
+|---|---|---|
+| `Permission denied (publickey)` | Either the key isn't loaded, or it isn't on GitHub | `ssh-add -l` shows loaded keys; if empty, run `ssh-add ~/.ssh/id_ed25519`. If the key is loaded, re-check step 8.2 — did you paste the **`.pub`** file? |
+| `Permission to <user>/<repo>.git denied to <user>` on push | Remote is still HTTPS | `git remote -v` — if you see `https://`, redo step 8.3 |
+| `Host key verification failed` | Someone (or something) is tampering, OR `known_hosts` got corrupted | `ssh-keygen -R github.com` then re-run `ssh -T git@github.com` and accept the new fingerprint |
+| `ssh-keygen: command not found` | OpenSSH isn't installed | `sudo apt install openssh-client` (Debian/Ubuntu) or equivalent |
+
 ---
 
 ## You're done with Week 0 setup. What's next?
