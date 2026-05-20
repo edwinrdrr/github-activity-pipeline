@@ -6,3 +6,9 @@ google-cloud-bigquery==3.*
 google-cloud-storage==2.*
 requests==2.*
 python-dotenv==1.*
+tenacity==9.*
+PyYAML==6.*
+
+# dev / test
+pytest==8.*
+responses==0.25.*

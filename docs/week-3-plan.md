@@ -142,12 +142,12 @@ ones that matter.
 
 ## Prereqs to handle before implementation
 
-- Create the GCS bucket (regional, US; lifecycle rule TBD).
-- Generate a fine-grained GitHub PAT. **No scopes needed** for
-  public-data reads — the token only lifts the rate limit from
-  60/hr to 5000/hr.
+Walkable steps live in [`setup-week-3.md`](./setup-week-3.md). Summary:
+
+- Install new Python deps (`tenacity`, `PyYAML`, `pytest`, `responses`).
+- Create a GCS bucket; grant the `dbt-runner` SA `Storage Object Admin` on it.
+- Generate a fine-grained GitHub PAT (no scopes needed for public reads).
 - Set `GCS_BUCKET` and `GITHUB_TOKEN` in `.env`.
-- Add to `requirements.txt`: `tenacity`, `PyYAML`, `pytest`, `responses`.
 
 ## Implementation order
 

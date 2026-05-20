@@ -206,17 +206,24 @@ re-run `set -a && source .env && set +a` after every edit.
 
 ---
 
-## You're done with setup. What's next?
+## You're done with Week 0 setup. What's next?
 
 Once `dbt debug` says `All checks passed!`, your environment is fully
-configured and the project is runnable. Setup is finished — you don't
-revisit this doc unless you're on a new machine.
-
-The actual project work begins now. Open [plan.md](./plan.md) and start
-with **Week 1 → Detailed steps (after setup)**. The first step there is
-`dbt run --select stg_gharchive__events` — your first real model run.
+configured for Week 1. The actual project work begins now — open
+[plan.md](./plan.md) and start with
+**Week 1 → Detailed steps (after setup)**. The first step there is
+`dbt run --select stg_gharchive__events`, your first real model run.
 
 If you'd rather see the full project map first, the plan is six to eight
 weeks long; each week has a single goal and a small set of deliverables.
 Week 1 is the smallest on purpose — get one model running end-to-end so
 the loop is real before you scale it up.
+
+### Per-week setup additions
+
+Subsequent weeks introduce new prereqs (dbt packages, GCS buckets,
+GitHub tokens, etc.). Each gets its own walkable setup doc:
+
+- Week 2: [`setup-week-2.md`](./setup-week-2.md) — dbt packages + conventions checkpoint
+- Week 3: [`setup-week-3.md`](./setup-week-3.md) — GCS bucket + IAM + GitHub PAT
+- Weeks 4-8: added as they land.
