@@ -33,6 +33,56 @@ Used in `stg_gharchive__events.sql` via the `gharchive_start_date`
 project variable. Full-history backfills are deliberately expensive
 (no pruning by design).
 
+### 📖 Where each BQ dataset in this project came from (W1-W3)
+
+By the end of Week 3, the BigQuery console for this project shows four
+non-public datasets. They're created by three different mechanisms:
+
+```
+ithub-activity-pipeline/
+├── dbt_dev_edwin/              ← dbt-managed (profile default)
+├── dbt_dev_edwin_seeds/        ← dbt-managed (+schema: seeds)
+├── dbt_dev_edwin_staging/      ← dbt-managed (+schema: staging)
+└── raw_github_api/             ← Python-managed (ingestion extractor)
+```
+
+**The dbt-managed three follow this naming rule:**
+`<profile-schema>_<+schema-suffix>` (with no suffix = the profile
+schema itself).
+
+- `profiles.yml` sets the base: `schema: dbt_dev_edwin`.
+- `dbt_project.yml` adds per-layer suffixes:
+  `staging: +schema: staging` → `dbt_dev_edwin_staging`,
+  `seeds: +schema: seeds` → `dbt_dev_edwin_seeds`.
+- `dbt_dev_edwin` (no suffix) holds anything that doesn't override
+  `+schema:` — including the 26 audit tables from the
+  `dbt_project_evaluator` package, which doesn't set its own `+schema:`.
+
+**The fourth (`raw_github_api`) is not dbt at all.** It's created by
+`ingestion/github_api_extractor.py::_ensure_table()`:
+
+```python
+dataset_ref = bigquery.Dataset(f"{project}.{BQ_DATASET}")
+client.create_dataset(dataset_ref, exists_ok=True)
+```
+
+That's why `raw_github_api.repos` and `raw_github_api.users` are
+partitioned tables (the extractor sets `PARTITION BY DATE(ingested_at)`),
+while everything in `dbt_dev_edwin_*` is unpartitioned.
+
+**Object kinds (table vs view) depend on materialization config:**
+
+| dbt config | BQ object |
+|---|---|
+| `+materialized: view` (staging) | View — re-runs SQL on every read |
+| `+materialized: ephemeral` (intermediate) | Nothing materialized — compiles to a CTE in callers |
+| `+materialized: table` (marts) | Table — rows physically stored |
+| `+materialized: incremental` (marts.facts) | Table, but updated by partition/merge instead of full rewrite |
+| seeds (no config) | Table — always |
+
+`dbt test` doesn't materialize anything; it runs the test SQL and
+checks the result row count.
+
 ### `DATETIME` vs `TIMESTAMP` (W2)
 
 `TIMESTAMP` = absolute instant (UTC under the hood, accepts `Z` /
