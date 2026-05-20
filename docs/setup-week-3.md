@@ -71,11 +71,18 @@ In the GCP console:
 2. **New principals**: paste the full service account email
    (`dbt-runner@ithub-activity-pipeline.iam.gserviceaccount.com` for
    this project — adjust to your actual project ID).
-3. **Role**: `Storage Object Admin`.
-   - Why not `Storage Admin`? That role can delete the bucket itself.
-     `Storage Object Admin` only manages objects inside.
-   - Why not `Storage Object Creator`? Doesn't allow overwrite, which
-     we need for idempotent re-runs.
+3. **Role**: `Storage Object User`.
+   - This grants read, write, and overwrite on **objects inside the
+     bucket** (`storage.objects.*`), which is exactly what the
+     extractor does. It does **not** grant `storage.buckets.get` —
+     so calls like `bucket.exists()` and `client.list_buckets()`
+     will 403 with this role alone. That's expected and harmless;
+     the extractor never makes those calls. Use the upload-based
+     smoke test in §6 instead, which exercises the real permission.
+   - Why not `Storage Admin`? That role can delete the bucket
+     itself — broader than needed.
+   - Why not `Storage Object Creator`? Doesn't allow overwrite,
+     which we need for idempotent re-runs.
 4. Click **Save**.
 
 **Success check:** the principal appears in the bucket's IAM list
@@ -96,9 +103,12 @@ already expects `GITHUB_TOKEN`).
      reads from `/repos/{owner}/{repo}` and `/users/{login}` need no
      special permission — the token only authenticates you so GitHub
      applies the higher rate limit.
-5. **Repository permissions**: leave all at `No access`.
-6. **Account permissions**: leave all at `No access`.
-7. Click **Generate token**. **Copy it immediately** — the value is
+   - Picking this hides the "Repository permissions" section. An
+     "Account permissions" section stays visible with a default of
+     `Account 0` / "No account permissions added yet".
+5. **Account permissions**: leave at `0`. Do **not** click "+ Add
+   permissions" — we want no account-level access.
+6. Click **Generate token**. **Copy it immediately** — the value is
    shown once.
 
 **Success check:** token starts with `github_pat_` (fine-grained
@@ -128,16 +138,19 @@ set -a && source .env && set +a
 
 ## 6. Verify connectivity (~1 min)
 
-A short Python smoke test confirms the bucket is reachable and the
-PAT works:
+Two checks: the GitHub PAT (lifts the rate limit) and the GCS bucket
+(can the service account write to it). The GCS test deliberately
+exercises `objects.create` + `objects.get` — the same calls the
+extractor makes — rather than `buckets.get` which would need a
+broader IAM role.
 
 ```bash
 source .venv/bin/activate
+set -a && source .env && set +a
+
+# GitHub PAT check
 python <<'PY'
 import os, requests
-from google.cloud import storage
-
-# GitHub PAT — should return 200 and your username
 r = requests.get(
     "https://api.github.com/user",
     headers={"Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}"},
@@ -145,16 +158,22 @@ r = requests.get(
 )
 print(f"GitHub: HTTP {r.status_code}, user={r.json().get('login', 'n/a')}")
 print(f"Rate limit: {r.headers.get('X-RateLimit-Remaining')}/{r.headers.get('X-RateLimit-Limit')}")
-
-# GCS — should print True
-client = storage.Client(project=os.environ["GCP_PROJECT_ID"])
-bucket = client.bucket(os.environ["GCS_BUCKET"])
-print(f"GCS bucket {bucket.name!r} exists: {bucket.exists()}")
 PY
+
+# GCS bucket check (writes + reads a small object — the real perms the extractor uses)
+python scripts/smoketest_gcs.py
 ```
 
-**Success check:** GitHub returns `HTTP 200`, GCS prints `exists: True`,
-and the rate limit shows `4999/5000` (or thereabouts).
+**Success check:**
+
+- GitHub: `HTTP 200`, your username, rate limit near `4999/5000`.
+- `smoketest_gcs.py`:
+  - `Authenticating as: dbt-runner@<your-project>.iam.gserviceaccount.com`
+  - `list_buckets: FAIL` *(expected — Object User lacks this permission, and that's OK)*
+  - `upload_from_string: OK — wrote gs://…/_smoketest/hello.txt`
+  - `download_as_text: OK — 'hello from week 3 setup'`
+
+If both `upload_from_string` and `download_as_text` say OK, you're done.
 
 ### Troubleshooting
 
@@ -162,8 +181,8 @@ and the rate limit shows `4999/5000` (or thereabouts).
 |---|---|---|
 | `HTTP 401` from GitHub | `GITHUB_TOKEN` is wrong or expired | Re-generate the PAT (step 4), update `.env`, re-source |
 | `HTTP 200` but `Rate limit: 59/60` | Token wasn't sent (typo in env var name?) | `echo $GITHUB_TOKEN \| head -c 12` should start with `github_pat_` |
-| GCS `Forbidden 403` on `bucket.exists()` | IAM grant missing or wrong role | Re-check step 3 — role should be exactly `Storage Object Admin` |
-| GCS `Not Found 404` | Bucket name typo, or wrong region | Verify `echo $GCS_BUCKET` matches the bucket name in the console |
+| `upload_from_string: FAIL — Forbidden 403` | IAM grant missing or didn't propagate yet | Recheck step 3, wait ~60s, re-run |
+| `upload_from_string: FAIL — NotFound 404` | Bucket name typo, or wrong project | Verify `echo $GCS_BUCKET` matches the console; check it's in `$GCP_PROJECT_ID` |
 | `KeyError: 'GCS_BUCKET'` | Shell doesn't have the env var | `set -a && source .env && set +a` (re-source after every `.env` edit) |
 
 ## You're done with Week 3 setup. What's next?
