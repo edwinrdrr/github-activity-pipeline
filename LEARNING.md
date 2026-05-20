@@ -529,7 +529,7 @@ dbt looks for `profiles.yml` *inside* the directory.
 
 ### venv discipline (W2)
 
-This repo's venv has dbt 1.8.7 (documented in `setup.md`). The
+This repo's venv has dbt 1.8.7 (documented in `week-0.md`). The
 system Python has a global dbt 1.11.x. They emit different
 deprecation warnings, so a forgotten `source .venv/bin/activate`
 will surface YAML deprecations that don't apply to this project.

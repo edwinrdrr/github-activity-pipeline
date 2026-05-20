@@ -34,8 +34,10 @@ github-activity-pipeline/
 ├── dashboards/                    Looker Studio link + screenshots
 │
 ├── docs/
-│   ├── setup.md                   One-time environment setup
+│   ├── week-0.md                  One-time environment setup (was setup.md)
+│   ├── week-N.md                  Per-week file: prereqs + build + verification
 │   ├── plan.md                    6-8 week project roadmap
+│   ├── workflow.md                End-to-end pipeline view with status badges
 │   ├── structure.md               This file
 │   └── adr/                       Architecture Decision Records
 │
@@ -189,8 +191,10 @@ Documentation that doesn't fit in `README.md`.
 
 | File | Purpose |
 |------|---------|
-| `setup.md` | One-time environment setup. Reusable on a new machine. |
-| `plan.md` | The 6-8 week roadmap with weekly deliverables. |
+| `week-0.md` | One-time environment setup (clone, GCP, dbt profile). Reusable on a new machine. |
+| `week-N.md` | One file per week containing prereqs + build steps + verification. Replaces the earlier `setup-week-N.md` / `week-N-plan.md` split. |
+| `plan.md` | The 6-8 week roadmap with weekly deliverables; cross-links to each `week-N.md`. |
+| `workflow.md` | End-to-end pipeline view; status badges (✅/🚧/⏳) flip as layers ship. |
 | `structure.md` | This file. |
 | `adr/NNNN-*.md` | Architecture Decision Records — one per non-obvious choice. |
 

@@ -24,7 +24,7 @@ show how I think and unstick myself, not to look polished.
 - First staging model `stg_gharchive__events` (view) materialized against the GH Archive public BigQuery dataset.
 - `_sources.yml` with freshness checks on GH Archive + planned `raw_github_api` enrichment tables.
 - `_staging__models.yml` with `not_null` + `accepted_values` tests, plus the custom singular test `assert_no_future_events.sql`.
-- Docs: `setup.md`, `plan.md`, `structure.md` (with a provenance section explaining what's convention vs. bespoke).
+- Docs: `week-0.md` (then `setup.md`), `plan.md`, `structure.md` (with a provenance section explaining what's convention vs. bespoke).
 - `Makefile` at the project root wrapping `dbt` commands. `include .env` + `export` removes the per-shell `set -a && source .env && set +a` ritual — Make loads the file once and exports every var to recipe subshells, which is what dbt's `env_var()` actually reads.
 
 ### What I learned
@@ -38,7 +38,7 @@ show how I think and unstick myself, not to look polished.
 - **The `/absolute/path/to/` placeholder trap in `.env`.** I treated `DBT_PROFILES_DIR=/absolute/path/to/...` as a valid default rather than template text. Cost ~20 minutes of confused `dbt debug` errors. Fix: replaced with real absolute path.
 - **Editing `.env` does not update an already-open shell.** Re-running `set -a && source .env && set +a` is required after every edit. Fell into this twice.
 - **`DBT_PROFILES_DIR` is a directory, not a file.** Briefly set it to `.../transform/profiles.yml` and got a confusing not-found error.
-- **Relative `DBT_PROFILES_DIR=./transform` breaks once you `cd transform`** — resolves to `transform/transform/`. Switched to absolute path. Documented as a trade-off vs. direnv / `~/.dbt/profiles.yml` in `setup.md`.
+- **Relative `DBT_PROFILES_DIR=./transform` breaks once you `cd transform`** — resolves to `transform/transform/`. Switched to absolute path. Documented as a trade-off vs. direnv / `~/.dbt/profiles.yml` in `week-0.md`.
 
 ### Open questions / to revisit
 - The `accepted_values` test on `event_type` warned — there are event types in GH Archive not in my starter enum. **Deferred to Week 2** (folded into the "`dbt build` green" deliverable): `SELECT DISTINCT event_type` from the staging view, then either expand the enum or downgrade the test to a documented warn.
@@ -76,7 +76,7 @@ show how I think and unstick myself, not to look polished.
 - **Week 3 source/seed swap mechanics.** Once `raw_github_api.{repos,users}` exist in BigQuery: uncomment the source block in `github_api/_sources.yml`, swap each stg `ref('repos')` / `ref('users')` to `source('github_api', '<table>')`, drop the seeds. Should be a clean 4-line change.
 - **`accepted_values` severity stays `warn`** — when do we promote to `error`? Probably once the broader marts layer is stable in Week 6-7 and we're confident no new event type would silently break joins. Until then, warn = canary.
 - **Cost ceiling on the rolling unique test** — the 7-day window is intuitive but unmeasured. Worth checking `bytes_processed` on a test run and tuning if it's bigger than expected.
-- **dbt 1.8 vs 1.11 split.** venv has 1.8.7 (matches `setup.md`); a global system install (1.11.5) shows up if I forget to activate the venv. The 1.11 install warns about two future-deprecated YAML patterns (`freshness` top-level, `arguments` wrapper on tests). Defer the upgrade — 1.8 is fine for the rest of the plan and the deprecation warnings only fire on the global dbt.
+- **dbt 1.8 vs 1.11 split.** venv has 1.8.7 (matches `week-0.md`); a global system install (1.11.5) shows up if I forget to activate the venv. The 1.11 install warns about two future-deprecated YAML patterns (`freshness` top-level, `arguments` wrapper on tests). Defer the upgrade — 1.8 is fine for the rest of the plan and the deprecation warnings only fire on the global dbt.
 
 ---
 
@@ -91,7 +91,7 @@ show how I think and unstick myself, not to look polished.
 - BigQuery tables created with `PARTITION BY DATE(ingested_at)` and loaded with **partition-scoped `WRITE_TRUNCATE`** via the `table$YYYYMMDD` decorator — re-running today's job overwrites today's partition instead of double-counting. This is the only way SCD2 will work cleanly in Week 5.
 - 20 unit tests (`pytest` + `responses`) covering: column projection, drop-unknown-keys discipline, 5xx retry, 404 sidecar, both rate-limit paths, organization-vs-user account handling, and a schema-shape assertion that pins the BQ columns to what the Week 2 staging models expect.
 - dbt source/seed swap: uncommented `_sources.yml`, switched `stg_github_api__{repos,users}` from `ref('repos'/'users')` to `source('github_api', …)`, renamed seeds to `*_sample.csv` as dev fixtures (per ADR 0002 — kept, not deleted). Staging models now `qualify row_number() over (partition by id order by ingested_at desc) = 1` to keep just the latest snapshot per id (history lives in raw for Week 5).
-- ADR 0002 (ingestion strategy), `week-3-plan.md`, `workflow.md`, `setup-week-2.md`, `setup-week-3.md`. The plan-first commits set the bar before any extractor code was written.
+- ADR 0002 (ingestion strategy), `week-3.md`, `workflow.md`, `week-2.md` (these started as `week-3-plan.md`, `setup-week-2.md`, `setup-week-3.md` and were merged later). The plan-first commits set the bar before any extractor code was written.
 - `scripts/smoketest_gcs.py` — reusable connectivity diagnostic. Tests `objects.create` + `objects.get`, the same permissions the extractor uses, rather than `buckets.get` (which `Storage Object User` doesn't grant).
 
 ### What I learned
@@ -112,7 +112,7 @@ show how I think and unstick myself, not to look polished.
 ### Open questions / to revisit
 - **Schema drift detection.** `ignore_unknown_values=True` lets the loader silently drop new GitHub response fields. Useful for resilience, but it means we won't notice if GitHub adds something interesting until someone hand-inspects raw. Could log a warning by diff'ing the response keyset against a recorded baseline. Defer until Week 6 (when orchestration could surface the alert).
 - **Targets list — static vs derived.** ADR 0002 explicitly defers the gharchive-top-N derivation. The current list is curated and small. Worth revisiting in Week 7 as a portfolio-storytelling angle ("pipeline feeds its own ingestion targets").
-- **`uv` migration.** Now that the venv has working pip, this is mostly fine, but `uv` was mentioned in `setup.md` as the default fast path. If I rebuild the venv, switching to `uv venv` would avoid the `--without-pip` trap by default.
+- **`uv` migration.** Now that the venv has working pip, this is mostly fine, but `uv` was mentioned in `week-0.md` as the default fast path. If I rebuild the venv, switching to `uv venv` would avoid the `--without-pip` trap by default.
 - **Storage cost forecasting.** The bucket has no lifecycle rule. At one ~5KB NDJSON per table per day × 2 tables, storage cost is rounding-error for years. Will revisit if I scale targets up materially.
 - **Week 5 dim_users SCD2 implications.** The staging view now keeps only the *latest* snapshot. SCD2 will reconstruct history by reading raw_github_api directly (since that's where every day's snapshot accumulates). Worth a sketch in `week-5-plan.md` before starting.
 

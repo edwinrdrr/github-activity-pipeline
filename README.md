@@ -50,7 +50,7 @@ _(fill in as you go — these are the talking points reviewers care about)_
 
 ## Local setup
 
-See [docs/setup.md](./docs/setup.md) for the full one-time setup walkthrough
+See [docs/week-0.md](./docs/week-0.md) for the full one-time setup walkthrough
 (GCP project, service account, Python env, dbt profile, `dbt debug`).
 
 ## Project plan

@@ -11,7 +11,7 @@ into `raw_github_api.{repos,users}` in BigQuery. The dbt staging layer
 (built in Week 2 against placeholder seeds) swaps to this real source.
 This ADR records the design choices that should outlive the
 implementation detail. Implementation lives in
-[`docs/week-3-plan.md`](../week-3-plan.md).
+[`docs/week-3.md`](../week-3.md).
 
 ## Decision
 

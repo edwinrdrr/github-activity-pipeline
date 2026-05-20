@@ -4,7 +4,9 @@ Six-to-eight week roadmap, ~6-10 hrs/week. Each week has a single goal
 and a small set of deliverables. Detailed steps live under the weeks
 where the friction is highest (Weeks 1, 4, 5).
 
-> Before starting any week: complete [setup.md](./setup.md).
+> Before starting any week: complete [week-0.md](./week-0.md). Each
+> subsequent week has its own file (`week-1.md`, `week-2.md`, …) with
+> both the prereqs and the build work for that week.
 > Log reflections in [`../LEARNING_LOG.md`](../LEARNING_LOG.md) at the end of every week.
 
 ---
@@ -13,54 +15,15 @@ where the friction is highest (Weeks 1, 4, 5).
 
 **Goal:** `dbt run --select stg_gharchive__events` works against your BigQuery project.
 **Effort:** ~4-6 hours.
+**Detailed plan:** [week-1.md](./week-1.md)
 
 ### Deliverables
-- [ ] [setup.md](./setup.md) completed end-to-end (`dbt debug` passes)
-- [ ] `stg_gharchive__events` materialized and visible in the BigQuery console
-- [ ] `dbt test --select stg_gharchive__events` green
-- [ ] `dbt docs generate` works locally; you've clicked around the lineage graph
-- [ ] First commit pushed to GitHub
-- [ ] Week 0/1 entry written in `LEARNING_LOG.md`
-
-### Detailed steps (after setup)
-
-1. **First dbt run**
-   ```bash
-   cd transform
-   dbt run --select stg_gharchive__events
-   ```
-   dbt creates a dataset `dbt_dev_<your-user>` and materializes the model as a view
-   that queries GH Archive's public dataset (no data is copied).
-
-2. **Run tests**
-   ```bash
-   dbt test --select stg_gharchive__events
-   ```
-   `not_null` should pass. `accepted_values` may warn if there are event types
-   not in the enum list — intentional; expand the list as you learn what's there.
-
-3. **Generate docs locally**
-   ```bash
-   dbt docs generate
-   dbt docs serve   # opens localhost:8080
-   ```
-   This is what will go on GitHub Pages in Week 8.
-
-4. **First commit**
-   ```bash
-   cd ..
-   git init
-   git add .
-   git commit -m "Week 1: project scaffold + first staging model"
-   # create the GitHub repo (empty) in the browser, then:
-   git remote add origin git@github.com:<you>/github-activity-pipeline.git
-   git branch -M main
-   git push -u origin main
-   ```
-
-5. **Log entry** — fill in Week 0/1 in `LEARNING_LOG.md` and commit it
-   separately (`git commit -m "log: week 1 reflections"`). The log as a
-   real evolving artifact in git history is part of its portfolio value.
+- [x] [week-0.md](./week-0.md) completed end-to-end (`dbt debug` passes)
+- [x] `stg_gharchive__events` materialized and visible in the BigQuery console
+- [x] `dbt test --select stg_gharchive__events` green
+- [x] `dbt docs generate` works locally; you've clicked around the lineage graph
+- [x] First commit pushed to GitHub
+- [x] Week 0/1 entry written in `LEARNING_LOG.md`
 
 ---
 
@@ -70,11 +33,11 @@ where the friction is highest (Weeks 1, 4, 5).
 **Effort:** ~6-8 hours.
 
 ### Deliverables
-- [ ] `stg_github_api__repos` and `stg_github_api__users` (placeholder — real data lands Week 3)
-- [ ] All `stg_*` models documented in `_staging__models.yml` with column descriptions
-- [ ] Source freshness configured (`dbt source freshness`) and passing
-- [ ] `dbt build` green across the staging layer
-- [ ] At least one custom singular test (e.g. `assert_no_future_events.sql` extended)
+- [x] `stg_github_api__repos` and `stg_github_api__users` (placeholder — real data lands Week 3)
+- [x] All `stg_*` models documented in `_staging__models.yml` with column descriptions
+- [x] Source freshness configured (`dbt source freshness`) and passing
+- [x] `dbt build` green across the staging layer
+- [x] At least one custom singular test (e.g. `assert_no_future_events.sql` extended)
 
 ---
 
@@ -82,15 +45,15 @@ where the friction is highest (Weeks 1, 4, 5).
 
 **Goal:** a Python script lands fresh repo/user metadata into BigQuery.
 **Effort:** ~8-10 hours (heaviest week before modeling).
-**Detailed plan:** [week-3-plan.md](./week-3-plan.md)
+**Detailed plan:** [week-3.md](./week-3.md)
 
 ### Deliverables
-- [ ] `ingestion/github_api_extractor.py` calls the REST API with rate-limit handling
-- [ ] Raw JSON lands in GCS, partitioned by date
-- [ ] Load job copies GCS → BigQuery `raw_github_api.repos` and `raw_github_api.users`
-- [ ] `stg_github_api__repos/users` now reference real data
-- [ ] Source freshness checks fire correctly when data is stale
-- [ ] `.env` has a real `GITHUB_TOKEN`
+- [x] `ingestion/github_api_extractor.py` calls the REST API with rate-limit handling
+- [x] Raw JSON lands in GCS, partitioned by date
+- [x] Load job copies GCS → BigQuery `raw_github_api.repos` and `raw_github_api.users`
+- [x] `stg_github_api__repos/users` now reference real data
+- [x] Source freshness checks fire correctly when data is stale
+- [x] `.env` has a real `GITHUB_TOKEN`
 
 ---
 
