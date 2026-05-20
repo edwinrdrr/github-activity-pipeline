@@ -1,11 +1,14 @@
 version: 2
 
+# Sample seeds — dev fixtures only. The staging models read from
+# `source('github_api', ...)` (the real raw_github_api.* tables); these
+# seeds are kept so contributors can run `dbt seed && dbt build --select staging+ --exclude source:github_api`
+# without needing GitHub credentials or a GCS bucket. See ADR 0002.
 seeds:
-  - name: repos
+  - name: repos_sample
     description: |
-      Placeholder GitHub /repos snapshots — stand-in for `raw_github_api.repos`
-      until the Week 3 REST API ingestion lands. Column shape mirrors what the
-      eventual ingestion will produce (REST response flattened, plus `ingested_at`).
+      Sample GitHub /repos snapshots — dev fixtures preserved from the
+      Week 2 placeholder layout. Not referenced by staging models.
     config:
       column_types:
         created_at: timestamp
@@ -22,11 +25,11 @@ seeds:
         data_tests:
           - not_null
       - name: owner_id
-        description: "Owner's user/org id. FK → users.id."
+        description: "Owner's user/org id. FK → users_sample.id."
         data_tests:
           - not_null
           - relationships:
-              to: ref('users')
+              to: ref('users_sample')
               field: id
       - name: archived
         description: "True if the repo is archived (read-only)."
@@ -37,11 +40,11 @@ seeds:
         data_tests:
           - not_null
 
-  - name: users
+  - name: users_sample
     description: |
-      Placeholder GitHub /users snapshots — stand-in for `raw_github_api.users`
-      until Week 3. Includes both User and Organization accounts; type column
-      disambiguates.
+      Sample GitHub /users snapshots — dev fixtures preserved from the
+      Week 2 placeholder layout. Includes both User and Organization
+      accounts; type column disambiguates.
     config:
       column_types:
         created_at: timestamp

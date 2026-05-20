@@ -1,0 +1,102 @@
+# Curated list of GitHub repos and users to snapshot daily.
+#
+# Decoupled from gharchive deliberately (see ADR 0002): static targets
+# keep the extractor's mechanics independent of the staging-layer state.
+# Future iterations may derive these from gharchive top-N — for now,
+# this list optimizes for: notable repos across languages/communities,
+# a mix of organizations and individuals, and FK integrity (every repo
+# owner appears in the users list).
+#
+# Each entry has an `enabled` flag so a 404 (deleted/renamed repo) can
+# be quieted without losing the historical record in git.
+
+repos:
+  # Frontend / JavaScript ecosystem
+  - full_name: facebook/react
+    enabled: true
+  - full_name: microsoft/vscode
+    enabled: true
+  - full_name: nodejs/node
+    enabled: true
+  - full_name: denoland/deno
+    enabled: true
+
+  # Systems / languages
+  - full_name: torvalds/linux
+    enabled: true
+  - full_name: python/cpython
+    enabled: true
+  - full_name: golang/go
+    enabled: true
+  - full_name: rust-lang/rust
+    enabled: true
+  - full_name: swiftlang/swift           # transferred from apple/swift in 2024
+    enabled: true
+
+  # ML / data
+  - full_name: tensorflow/tensorflow
+    enabled: true
+  - full_name: pytorch/pytorch
+    enabled: true
+
+  # Infra / tooling
+  - full_name: kubernetes/kubernetes
+    enabled: true
+  - full_name: github-linguist/linguist  # transferred from github/linguist in 2024
+    enabled: true
+
+  # Historic / small (low-noise sentinels — useful for testing dedup,
+  # archived flags, low-activity repos)
+  - full_name: mojombo/grit          # GitHub's very first repo; archived
+    enabled: true
+  - full_name: octocat/Hello-World   # canonical "demo" repo
+    enabled: true
+
+users:
+  # Repo owners (organizations). Every repo above must have its owner
+  # listed here for the FK test on stg_github_api__repos.owner_id to pass.
+  - login: facebook
+    enabled: true
+  - login: microsoft
+    enabled: true
+  - login: nodejs
+    enabled: true
+  - login: denoland
+    enabled: true
+  - login: python
+    enabled: true
+  - login: golang
+    enabled: true
+  - login: rust-lang
+    enabled: true
+  - login: apple
+    enabled: true
+  - login: swiftlang   # current owner of swift (transferred from apple)
+    enabled: true
+  - login: tensorflow
+    enabled: true
+  - login: pytorch
+    enabled: true
+  - login: kubernetes
+    enabled: true
+  - login: github
+    enabled: true
+  - login: github-linguist  # current owner of linguist (transferred from github)
+    enabled: true
+
+  # Repo owners (individuals)
+  - login: torvalds
+    enabled: true
+  - login: mojombo
+    enabled: true
+  - login: octocat
+    enabled: true
+
+  # Notable individuals not currently owning a tracked repo — included
+  # to give dim_users some variety (and to cover historical low ids).
+  - login: defunkt   # GitHub co-founder; user_id = 2
+    enabled: true
+  - login: gaearon   # Dan Abramov, longtime React maintainer
+    enabled: true
+  - login: tj        # TJ Holowaychuk, prolific Node ecosystem contributor
+    enabled: true

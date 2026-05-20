@@ -1,32 +1,31 @@
 version: 2
 
-# Week 3: real ingestion will land raw_github_api.{repos,users} in BigQuery.
-# Until then, stg_github_api__* models read from seeds (transform/seeds/github_api/).
-# When ingestion lands, uncomment this block, swap the stg refs from
-# ref('repos')/ref('users') back to source('github_api', 'repos'/'users'),
-# and drop the seeds.
-#
-# sources:
-#   - name: github_api
-#     description: "Enrichment snapshots ingested from the GitHub REST API."
-#     database: "{{ env_var('GCP_PROJECT_ID') }}"
-#     schema: raw_github_api
-#     tables:
-#       - name: repos
-#         description: "Per-repo metadata snapshots."
-#         loaded_at_field: ingested_at
-#         freshness:
-#           warn_after:  {count: 25, period: hour}
-#           error_after: {count: 48, period: hour}
-#         columns:
-#           - name: repo_id
-#             data_tests: [not_null]
-#       - name: users
-#         description: "Per-user metadata snapshots."
-#         loaded_at_field: ingested_at
-#         freshness:
-#           warn_after:  {count: 25, period: hour}
-#           error_after: {count: 48, period: hour}
-#         columns:
-#           - name: user_id
-#             data_tests: [not_null]
+# Activated Week 3 — populated by ingestion/github_api_extractor.py.
+# Sample CSVs live in transform/seeds/github_api/{repos,users}_sample.csv
+# for credential-free contributor flows (see ADR 0002).
+sources:
+  - name: github_api
+    description: "Enrichment snapshots ingested from the GitHub REST API."
+    database: "{{ env_var('GCP_PROJECT_ID') }}"
+    schema: raw_github_api
+    tables:
+      - name: repos
+        description: "Per-repo metadata snapshots, one row per (repo, ingested_at) day."
+        loaded_at_field: ingested_at
+        freshness:
+          warn_after:  {count: 25, period: hour}
+          error_after: {count: 48, period: hour}
+        columns:
+          - name: id
+            description: "GitHub repository numeric id."
+            data_tests: [not_null]
+      - name: users
+        description: "Per-user metadata snapshots, one row per (login, ingested_at) day."
+        loaded_at_field: ingested_at
+        freshness:
+          warn_after:  {count: 25, period: hour}
+          error_after: {count: 48, period: hour}
+        columns:
+          - name: id
+            description: "GitHub user/org numeric id."
+            data_tests: [not_null]

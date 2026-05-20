@@ -1,7 +1,16 @@
 {{ config(materialized='view') }}
 
 with source as (
-    select * from {{ ref('repos') }}
+    select *
+    from {{ source('github_api', 'repos') }}
+),
+
+latest as (
+    -- The raw table accumulates one snapshot per repo per day. The
+    -- staging view emits the most recent snapshot per repo; SCD2 history
+    -- is built in dim_repos (Week 5) from the raw layer directly.
+    select * from source
+    qualify row_number() over (partition by id order by ingested_at desc) = 1
 ),
 
 renamed as (
@@ -23,7 +32,7 @@ renamed as (
         created_at         as repo_created_at,
         pushed_at          as repo_pushed_at,
         ingested_at
-    from source
+    from latest
 )
 
 select * from renamed

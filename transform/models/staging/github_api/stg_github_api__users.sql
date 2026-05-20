@@ -1,7 +1,14 @@
 {{ config(materialized='view') }}
 
 with source as (
-    select * from {{ ref('users') }}
+    select *
+    from {{ source('github_api', 'users') }}
+),
+
+latest as (
+    -- Latest snapshot per user; SCD2 history is built in dim_users (Week 5).
+    select * from source
+    qualify row_number() over (partition by id order by ingested_at desc) = 1
 ),
 
 renamed as (
@@ -19,7 +26,7 @@ renamed as (
         `following`,
         created_at         as user_created_at,
         ingested_at
-    from source
+    from latest
 )
 
 select * from renamed
