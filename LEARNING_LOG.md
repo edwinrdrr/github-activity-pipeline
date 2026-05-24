@@ -152,6 +152,36 @@ show how I think and unstick myself, not to look polished.
 
 ---
 
+## Week 5 — Dimensions & SCD2
+**Dates:** 2026-05-24 → 2026-05-24
+**Hours:** ~_TBD_
+
+### What I built
+- `dim_repos` and `dim_users` — hand-rolled **Type 2 SCD**, materialized as `table`. Change-detection: a new version row opens only when a *tracked* attribute changes between consecutive daily snapshots (`lag(...) is distinct from ...` → running-sum version number → collapse to one row per version). Tracked columns: `star_bucket` + `is_archived` for repos, `contributor_tier` for users. Validity windows via `lead(valid_from)`; surrogate key `generate_surrogate_key([natural_key, valid_from])`.
+- `dim_languages` (9 rows) and `dim_dates` (~1,461 rows, from `dbt_date.get_date_dimension`) — Type 1 lookups.
+- `int_user_contributor_tier_snapshots` — tier per (user, snapshot) from `fct_events` history. Materialized as `table` to isolate its full fact scan.
+- Repurposed `stg_github_api__{repos,users}` to emit **all** snapshots (dropped the latest-only `qualify`); PK tests became `unique_combination_of_columns([id, ingested_at])`.
+- 3 dbt **unit tests** proving the SCD2 logic on mocked multi-snapshot input; `assert_scd2_no_overlap` singular test guarding both dims.
+- `docs/adr/0004-scd2-design.md`; documented `dbt_project_evaluator` exceptions seed; `make seed` target.
+
+### What I learned
+- **Forward-only history is the honest model, and unit tests are how you prove SCD2 before history exists.** With one snapshot day, the live dims show one version per entity — indistinguishable from Type 1. The unit tests (mocked two/three-snapshot input → asserted windows) are what demonstrate the logic. Fabricating backdated rows would put fiction in the warehouse. See [`LEARNING.md` SCD2](./LEARNING.md#dbt).
+- **Change-detection SCD2 ≠ snapshot-per-day.** Emitting a row per snapshot over-versions; collapsing consecutive unchanged snapshots makes each version boundary a real analytical change. `is distinct from` handles the first-row (`lag` is NULL) and NULL→value cases cleanly.
+- **Measure the scan before running it.** A BigQuery dry-run put the tier intermediate at **167.4 GiB (~$1.02)** — far under my 680 GiB worst-case guess, because BQ is columnar and the query touches 3 columns. Materializing the intermediate as a `table` means `dim_users` rebuilds read 1.7 KiB instead of re-scanning the fact.
+- **dbt unit tests mock a model's *direct* parents.** The plan mocked `source('github_api','repos')`, but `dim_repos`'s direct parent is `ref('stg_github_api__repos')` — so the mock target had to be staging, not the source.
+- **`dbt_project_evaluator` exceptions are a seed, and you must disable the package's default one.** The `filter_exceptions` macro only activates when the *only* `dbt_project_evaluator_exceptions` seed is yours (`+enabled: false` on the package's). Excepted `dim_dates` (root model — generated, no refs) and `dim_users` (legitimately rejoins `stg_github_api__users`).
+
+### What I got stuck on
+- **Partial parsing silently dropped tests.** `dim_users`'s tests and the singular overlap test wouldn't run — `dbt ls` didn't even list them. They were first parsed when `dim_users` didn't exist yet, and the cached manifest never picked them up. `--no-partial-parse` forced a full re-parse and fixed it. Now wary of trusting partial parse after adding cross-referencing nodes.
+- **The Makefile had no `seed` target** (and `compile` ignored `ARGS`). Added both — `make seed` is needed for the exceptions seed and any future fixtures.
+
+### Open questions / to revisit
+- **The tier scan (167 GiB) shouldn't run daily.** Week 6 should pre-aggregate per-actor first-event/distinct-repos or re-cluster `fct_events` on `actor_id`, so the daily DAG doesn't re-scan the fact.
+- **Incremental-merge SCD2 deferred.** `table` full-rebuild is correct and cheap at 15–20 rows; the textbook incremental-merge (close `valid_to` on the prior current row, insert the new version) is the Week-6+ move once volume justifies it.
+- **Type 1 columns carry the version's *latest* snapshot, not strictly "now".** A purist current-value Type 1 would overwrite across all versions. Negligible within a version at daily cadence; revisit if it ever matters.
+
+---
+
 ## Entry template (copy for each new week)
 
 ```

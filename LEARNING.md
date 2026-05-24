@@ -555,6 +555,65 @@ deprecates:
 Not blocking on 1.8. When upgrading, run with `--show-all-deprecations`
 to see the full list at once.
 
+### 📖 Hand-rolled Type 2 SCD via change-detection (W5)
+
+The textbook "row per snapshot" over-versions. Instead, open a new
+version only when a *tracked* attribute changes:
+
+```sql
+-- 1. flag a version boundary: first snapshot (lag is null) or any change
+case when lag(star_bucket) over w is distinct from star_bucket
+       or lag(is_archived)  over w is distinct from is_archived
+     then 1 else 0 end as is_version_start
+-- window w as (partition by repo_id order by ingested_at)
+
+-- 2. running sum of boundaries = a stable version number per entity
+sum(is_version_start) over (partition by repo_id order by ingested_at
+    rows between unbounded preceding and current row) as version_num
+
+-- 3. collapse to one row per (entity, version_num); valid_from = min
+--    ingested_at of the version; valid_to = lead(valid_from); is_current
+--    = valid_to is null. Surrogate key = hash(natural_key, valid_from).
+```
+
+`is distinct from` is the key: it makes the first row (lag NULL) a
+boundary and treats NULL→value as a change. Tracked columns are Type 2
+(the "what was it *then*" ones); everything else is Type 1, carried from
+the version's latest snapshot. History is forward-only — it starts at
+the first snapshot; earlier state is unknowable and never fabricated.
+This needs the staging model to keep *all* snapshots (drop the
+latest-only `qualify` — see [Latest-snapshot dedup in staging](#dbt)).
+`table` full-rebuild is fine at low volume; incremental-merge is the
+scale-up. (W5: `dim_repos`, `dim_users`.)
+
+### dbt unit tests mock a model's *direct* parents (W5)
+
+A unit test's `given:` mocks the inputs the model `ref()`s/`source()`s
+**directly**, not transitively. `dim_repos` reads
+`ref('stg_github_api__repos')`, so the mock targets staging — mocking
+the underlying `source('github_api','repos')` wouldn't apply. Provide
+only the columns you assert in `expect:`; omit surrogate-key hashes you
+can't predict. Unit tests run on mock data — no warehouse scan. (W5)
+
+### Partial parsing can silently drop newly-added tests (W5)
+
+A node (e.g. a singular test) first parsed while one of its `ref()`
+targets didn't yet exist can get stuck out of the cached manifest —
+`dbt ls` won't even list it, and `dbt test --select <model>` reports
+"nothing to do" with no error. `--no-partial-parse` forces a full
+re-parse and registers it. Suspect this after adding models + their
+cross-referencing tests in the same session. (W5)
+
+### `dbt_project_evaluator` exceptions live in a seed (W5)
+
+To accept a flagged-but-legitimate finding: create a seed
+`dbt_project_evaluator_exceptions` with columns `fct_name, column_name,
+id_to_exclude`, and set the package's own copy `+enabled: false` in
+`dbt_project.yml`. The `filter_exceptions` macro only activates when the
+*sole* seed of that name is yours. Find the right `column_name` by
+querying the audit's `fct_*` table (e.g. `fct_root_models.child`). (W5:
+excepted `dim_dates` as a root model, `dim_users` for an upstream rejoin.)
+
 ---
 
 ## GH Archive
