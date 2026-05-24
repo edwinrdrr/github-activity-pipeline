@@ -60,8 +60,15 @@ agent that executes — so don't pre-write a future week as a speculative
 plan, and don't fabricate a tutorial for work you haven't actually run.
 Build it for real (write the code, run `dbt build`, watch the tests
 pass), and only then write `docs/week-N.md` from the *real* commands and
-outputs you just observed. A file for unbuilt work is a thin stub at
-most.
+outputs you just observed.
+
+A week not yet built gets a **bare pointer stub** — status (`⏳ not
+built yet`) plus a link to its roadmap in `plan.md`, and nothing else.
+Do NOT copy goals, deliverables, design, or "planned steps" into it:
+the roadmap lives only in `plan.md`, and putting plan content in a week
+file is the exact mistake this rule exists to prevent. The week file
+gains real content only once the week is built — at which point it
+becomes the tutorial.
 
 Planning survives in exactly one narrow form: a **brief alignment
 checkpoint** before hard or hard-to-reverse work (a new GCP surface, a
@@ -104,6 +111,15 @@ decisions` / `Module layout` walls.
 `week-0.md` is the one-time onboarding (was `setup.md`). Don't
 re-introduce the old `setup-week-N.md` / `week-N-plan.md` split —
 that was confusing and got refactored away.
+
+**Status has one source of truth: `plan.md` checkboxes.** `workflow.md`
+badges and week-file `✅` banners are secondary and must match it; if
+they disagree, `plan.md` wins. **Week files are cumulative** — show a
+later edit to an earlier artifact in the *later* week; never retro-edit
+an earlier tutorial. The full build/rebuild flow (plan → build →
+document, the two reproduction modes, and the anti-patterns) is written
+out in [`docs/building-this-project.md`](docs/building-this-project.md);
+read it when in doubt.
 
 ### Use the in-repo Makefile
 

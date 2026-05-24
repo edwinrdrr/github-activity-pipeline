@@ -60,7 +60,10 @@ See [docs/week-0.md](./docs/week-0.md) for the full one-time setup walkthrough
 ## Project plan
 
 See [docs/plan.md](./docs/plan.md) for the 6-8 week roadmap with weekly
-goals and deliverables.
+goals and deliverables, and
+[docs/building-this-project.md](./docs/building-this-project.md) for how
+the project is built week by week — and how to rebuild it from scratch
+by following the per-week tutorials.
 
 ## Repo layout
 
