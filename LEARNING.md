@@ -764,6 +764,25 @@ already paid that, seed prod with a BigQuery **copy** of the dev table
 clustering and bills no query bytes — then dbt runs incrementally on top.
 `make bootstrap-prod` does this. (W6)
 
+### Rolling-window fact: cap storage with `partition_expiration_days` (W6)
+
+A growing all-history fact *is* the storage bill. To bound it, make the
+fact a rolling window: set `partition_expiration_days=N` (BigQuery
+auto-drops partitions older than N days) **and** filter the full-refresh
+branch to the last N days, so a rebuild doesn't re-scan all history. This
+took `fct_events` from **735 GiB / 7.5B rows (2021→)** to **31 GiB / 324M
+rows (last 90 days)** — whole-project footprint under 100 GB, cheap
+full-refreshes, smaller tier scan. Trade-off: deep history is gone, and
+"first event ever" becomes "first event within the window." (W6 — ADR 0003.)
+
+### Jinja parses tags inside SQL comments (W6)
+
+dbt renders Jinja *before* SQL, so it doesn't respect `--` comments — a
+literal `{% else %}` (or `{% if %}`, `{{ ... }}`) written inside a SQL
+comment is still parsed as a tag and errors (`Encountered unknown tag
+'else'`). Reword the comment to avoid Jinja delimiters, or wrap it in
+`{% raw %}…{% endraw %}`. (W6)
+
 ### CI for a BigQuery project: transform, don't ingest (W6)
 
 PR CI doesn't need a GitHub token or GCS — it reads the *existing*
