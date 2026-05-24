@@ -118,6 +118,40 @@ show how I think and unstick myself, not to look polished.
 
 ---
 
+## Week 4 — `fct_events`: incremental + partitioned
+**Dates:** 2026-05-21 → 2026-05-21
+**Hours:** ~_TBD_
+
+### What I built
+- `transform/models/marts/facts/fct_events.sql` — the central fact, materialized as a BigQuery incremental table. 11 columns, 7.5 billion rows. Partitioned by `event_date` (daily granularity), clustered on `(repo_id, event_type)`.
+- `incremental_strategy='insert_overwrite'` with a 3-day lookback for late arrivals. Dynamic partition discovery (no hardcoded `partitions_to_replace` list).
+- `transform/models/marts/facts/_models.yml` — grain statement at the top, full column documentation, and seven tests: `not_null` on the PK + FK + grain columns, rolling `unique` on `event_id` (mirror of staging's 7-day-window pattern), `accepted_values` on `event_type` (warn), and a model-level `dbt_utils.recency` on `event_at` (warn if no events in last 48h).
+- `docs/adr/0003-incremental-strategy.md` — captures the durable decisions: insert_overwrite vs merge, late-arrival SLA, dynamic partition discovery, cluster prefix-selectivity, drop event_payload, schema-evolution behavior.
+- `docs/week-4.md` — execution roadmap; status banner; cost evidence table.
+- Filter: dropped rows with NULL `actor_id` (27 rows) or NULL `repo_id` (~11k rows) at the fact level. Tiny tail of dirty GH Archive data; filtered with an explicit comment so the loss is counted, not silent.
+
+### What I learned
+- **The cost win was much larger than the deliverable required.** Full refresh: 679.8 GiB scanned in 144s. Incremental: 2.0 GiB in 58s. **Ratio: 0.29%** — vs the ≤10% target. Two compounding effects: (1) the staging view's `_TABLE_SUFFIX` pruning, (2) the fact's `event_date` partition filter. Each is necessary; together they're a 340× cost reduction.
+- **`unique_key` is ignored under `insert_overwrite`.** I almost included it in the config out of muscle memory; the Plan agent caught it. `unique_key` is a `merge`-strategy concept. Leaving it in the config would mislead future readers into thinking row-level dedup was happening.
+- **`dbt_utils.recency` must be a model-level test, not a column-level one.** It doesn't accept the `column_name` arg that dbt auto-injects under `columns:`. Parse-time error on the first run; fixed by moving the test up to `data_tests:` at the model level. Two minutes lost; would have been hours without the parse-time error being clear.
+- **BQ cluster ordering is prefix-sensitive, like a B-tree index.** Leading-column filters prune blocks; trailing-column filters only refine within blocks already selected by the leading column. `cluster_by=['repo_id', 'event_type']` makes repo-filtered dashboards (the common case) fast. The reverse order would have been worse for typical queries — the "industry default" framing is a red herring; the answer is dictated by query patterns.
+- **GH Archive has a small NULL-FK tail.** ~11k rows with NULL `repo_id`, ~27 with NULL `actor_id` across 7.5B events (≈0.00015%). Filter at the fact, not at staging: staging should faithfully mirror source (with dedup), and the fact owns the FK strictness needed for dim joins.
+- **Schema evolution + `insert_overwrite` interact subtly.** `+on_schema_change: append_new_columns` lets new columns land — but only in the partitions touched by the incremental run. Older partitions get the new column as NULL. To backfill the new column historically, you need a manual `--full-refresh`. Worth documenting now so future-me doesn't get surprised.
+- **The dbt_project_evaluator structural audit caught the YAML-location mismatch immediately.** Tests for `fct_events` were in `models/marts/_marts__models.yml` but the model was in `models/marts/facts/`. Move + rename to `models/marts/facts/_models.yml` matched the per-source convention from Week 2.
+
+### What I got stuck on
+- **First `dbt run --full-refresh` failed at parse time with `dbt_utils.recency` rejecting `column_name`.** Confusing because the error message says "macro takes no keyword argument 'column_name'" — and I didn't write `column_name` anywhere. The fix (move from column-level to model-level test) is obvious in retrospect, but the indirection through dbt's auto-injection wasn't obvious from the error.
+- **The bytes-processed measurement was easier than expected.** I planned to query `INFORMATION_SCHEMA.JOBS_BY_PROJECT` for `total_bytes_billed`, but dbt's own run summary surfaces "X GiB processed" right next to the model name. Good enough for the deliverable; ADR notes JOBS_BY_PROJECT as the rigorous path if needed.
+- **Briefly considered keeping a slim payload subset in `fct_events`.** The Plan agent argued against it: grain creep. Instead, plan for `fct_pull_requests`, `fct_issues`, `fct_pushes` in Week 5+ that parse payload per event_type with proper typed columns. Right call — keeps the central fact clean.
+
+### Open questions / to revisit
+- **The 3-day lookback hasn't been stress-tested.** If a Dagster run is missed entirely (Week 6+), `insert_overwrite` won't backfill the gap; only partitions named in the incremental CTE get rewritten. Recovery is `--full-refresh`, which is fine but should be in a runbook before Week 6.
+- **Schema evolution backfill workflow.** When GitHub adds a new field and we surface it in `stg_gharchive__events`, older `fct_events` partitions will have the new column as NULL. To get historical values, we need a documented "backfill mode" — a `--full-refresh` with a date-range filter. Build it when we actually hit this, not preemptively.
+- **Cost forecasting.** 2 GiB/day incremental × 365 days = 730 GiB/year. Under BigQuery's 1 TB/month free tier we're fine. If targets-list expansion or per-event-type facts push us past that, worth a cost note in the README per the Week 6/Week 8 deliverables.
+- **`fct_events`'s row count (7.5b) is twice my back-of-napkin estimate** (~3.5b for 16 months × ~5M events/day). Either my estimate was low or GH Archive is publishing more than I thought. Worth running `SELECT _TABLE_SUFFIX, COUNT(*) FROM githubarchive.month.20* GROUP BY 1 ORDER BY 1` once to actually confirm the monthly volume.
+
+---
+
 ## Entry template (copy for each new week)
 
 ```

@@ -259,6 +259,107 @@ was three lines per stg model (`ref('repos')` → `source('github_api',
 contributors can `dbt seed && dbt build --select staging+ --exclude
 source:github_api` without any GitHub credentials.
 
+### 📖 Incremental models with `insert_overwrite` (W4)
+
+The default `dbt run` materializes a `table`-typed model by rewriting
+the whole table. For a fact table with billions of rows, that's
+prohibitive. `incremental` materialization rewrites only the rows
+that changed since the last run.
+
+dbt offers two `incremental_strategy` flavors on BigQuery:
+
+| Strategy | What it does | When to use |
+|---|---|---|
+| `insert_overwrite` | Replaces named partitions wholesale. Single partition-scoped DML. | Append-mostly facts where rows are immutable once landed. The default for BQ. |
+| `merge` | Uses `MERGE INTO` keyed on `unique_key`. Row-level upsert. | Slowly changing rows that need late updates. More expensive — scans destination to find matches. |
+
+**`unique_key` is ignored under `insert_overwrite`.** It's a `merge`
+concept. Don't put it in the config under insert_overwrite — leaving
+it there implies row-level dedup that isn't actually happening.
+
+The canonical config for an event-shaped fact:
+
+```jinja
+{{ config(
+  materialized='incremental',
+  incremental_strategy='insert_overwrite',
+  partition_by={'field': 'event_date', 'data_type': 'date', 'granularity': 'day'},
+  cluster_by=['repo_id', 'event_type']
+) }}
+
+with source as (
+  select * from {{ ref('stg_*') }}
+  {% if is_incremental() %}
+    where event_date >= date_sub(current_date(), interval 3 day)
+  {% endif %}
+)
+select ... from source
+```
+
+The `{% if is_incremental() %}` block is what makes this efficient.
+On first run (table doesn't exist) the filter is skipped → full
+backfill. On subsequent runs (table exists) the filter prunes to the
+recent window → minimal scan.
+
+### Late-arrival lookback window (W4)
+
+Choosing the `interval N day` in the incremental filter is the only
+real design knob. Trade-off:
+
+- **Too short (e.g. 1 day):** A missed run during a long weekend
+  means data lost in the gap is never picked up.
+- **Too long (e.g. 30 days):** Every run rewrites a month of
+  partitions. Cheap on its own, but wasted work.
+
+For GH Archive data, 3 days is the goldilocks: late-arriving rows
+past 24h are vanishingly rare, but 3 days gives margin for a missed
+Friday run not noticed until Monday.
+
+For sources with truly late-arriving data (Salesforce, financial
+reconciliations), 7-14 days is more typical.
+
+### Cluster ordering is prefix-sensitive (W4)
+
+BigQuery clustering keys behave like a B-tree index: the leading
+column prunes blocks; trailing columns only refine within blocks
+already selected by the leading column.
+
+`cluster_by=['repo_id', 'event_type']`:
+
+- `WHERE repo_id = 123` → can prune blocks → cheap.
+- `WHERE repo_id = 123 AND event_type = 'PushEvent'` → block-pruned,
+  then refined → cheaper still.
+- `WHERE event_type = 'PushEvent'` (alone) → **can't prune blocks**
+  because event_type isn't leading; scan most of the table.
+
+Put the column you most often filter standalone *first*. For dashboard
+queries on event-shaped facts, that's almost always the repo or user
+key, not the event type.
+
+### `dbt_utils.recency` (W4)
+
+A test that fails (or warns) if the most recent value in a column
+is more than N units old:
+
+```yaml
+data_tests:                # MUST be model-level, not column-level
+  - dbt_utils.recency:
+      datepart: hour
+      field: event_at
+      interval: 48
+      config:
+        severity: warn
+```
+
+Catches "the pipeline silently stopped running" — a class of bug
+that schema tests won't detect. Source freshness tests the *source*;
+recency tests the *built model*.
+
+**Gotcha:** must be a model-level test (under `data_tests:` at the
+model level), not a column-level test. dbt auto-injects
+`column_name` for column-level tests, and `recency` doesn't accept
+it. Parse-time error if you misplace it.
+
 ### Latest-snapshot dedup in staging (W3)
 
 When raw tables accumulate one row per (entity, day), the staging
