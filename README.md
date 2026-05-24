@@ -28,6 +28,10 @@ GH Archive (BigQuery public) ─────────────────
                                             Looker Studio dashboard
 ```
 
+See [docs/architecture.md](./docs/architecture.md) for the annotated
+flow and [docs/sources.md](./docs/sources.md) for what each data
+source provides (and the metadata-vs-events history asymmetry).
+
 ## Stack
 
 | Layer          | Tool                                |

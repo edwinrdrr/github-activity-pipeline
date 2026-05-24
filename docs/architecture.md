@@ -24,7 +24,7 @@ End-to-end **ELT pipeline**: GitHub data → cloud storage → BigQuery → dbt 
 
 | Stage | What happens | Tech |
 |-------|--------------|------|
-| **Sources** | GitHub REST API supplies repo/user metadata; GH Archive supplies the event stream (read in place from BigQuery's public dataset, partition-pruned, never copied) | GitHub API, GH Archive |
+| **Sources** | GitHub REST API supplies repo/user metadata; GH Archive supplies the event stream (read in place from BigQuery's public dataset, partition-pruned, never copied). See [`sources.md`](./sources.md) for what each gives and the metadata-vs-events history asymmetry. | GitHub API, GH Archive |
 | **Ingest** | Python extractor fetches the API with retries + validation, writes NDJSON to GCS partitioned by date | Python, `tenacity`, GCS |
 | **Store (raw)** | A BigQuery load job lands the NDJSON into `raw_github_api.*`, partitioned, idempotent (`WRITE_TRUNCATE` per partition) | BigQuery |
 | **Transform** | dbt builds staging views → marts: `fct_events` (incremental), `dim_users` (SCD2), `dim_repos` | dbt, SQL |

@@ -21,13 +21,69 @@ part most candidates skip.
 ## Prereqs
 
 [`week-4.md`](./week-4.md) shipped — `fct_events` is materialized,
-tests pass, the raw_github_api.* tables are accumulating daily
-snapshots (the source for SCD2 reconstruction).
+tests pass.
 
 No new GCP surfaces. No new env vars. New dbt config in
 `dbt_project.yml` to add a `marts.dimensions` folder.
 
+> **Reality check on history (read before building):** as of the
+> start of Week 5, `raw_github_api.*` has **exactly one snapshot
+> day** (the ingestion started ~Week 3). So the SCD2 dims will have
+> **one version per entity** until daily snapshots accrue over time.
+> See the "Forward-only history" decision below — this is correct,
+> not a bug.
+
 ## Design decisions (to be recorded in ADR 0004)
+
+### Forward-only history (the load-bearing decision)
+
+**SCD2 history legitimately starts the day you start capturing it.**
+The GitHub API returns only *current* state — you cannot fetch what
+a repo's star count was last month. So the dims capture history
+**from the first snapshot forward**; earlier state is genuinely
+unknowable.
+
+This means:
+
+- Today, every dim has one version per entity (`valid_from =
+  first snapshot`, `valid_to = NULL`, `is_current = true`).
+- As the daily extractor runs over coming days/weeks, real history
+  accrues and the dims become genuinely Type 2.
+
+**Do NOT synthesize backdated production rows** to make the demo
+look populated. Inserting a fabricated "2026-03 snapshot where
+facebook/react had fewer stars" puts fiction into the warehouse —
+downstream consumers would read it as truth. That's a data-
+integrity violation. Real warehouses live with forward-only
+history; so do we.
+
+### Demonstrating the SCD2 logic without fabricating data
+
+Since prod history is forward-only (and thin today), we **prove the
+SCD2 versioning logic with unit tests** (dbt 1.8+), not by polluting
+the prod table. A unit test feeds the *model* mocked multi-snapshot
+input and asserts correctly-versioned output:
+
+```yaml
+unit_tests:
+  - name: scd2_creates_new_version_on_star_bucket_change
+    given:
+      - input: source('github_api', 'repos')
+        rows:
+          - {id: 1, stargazers_count: 50,   ingested_at: '2026-03-01 00:00:00', archived: false, full_name: 'a/b', language: 'Go'}
+          - {id: 1, stargazers_count: 5000, ingested_at: '2026-04-01 00:00:00', archived: false, full_name: 'a/b', language: 'Go'}
+    expect:
+      rows:
+        - {repo_id: 1, star_bucket: 'small',  valid_from: '2026-03-01 00:00:00', valid_to: '2026-04-01 00:00:00'}
+        - {repo_id: 1, star_bucket: 'medium', valid_from: '2026-04-01 00:00:00', valid_to: null}
+```
+
+This proves "two snapshots → two correctly-windowed versions"
+without inserting fiction into the warehouse. The mock data lives
+in the test; prod stays truthful. A reviewer who knows the field
+respects this far more than fabricated history.
+
+### Surrogate keys vs natural keys
 
 ### Surrogate keys vs natural keys
 
@@ -151,11 +207,19 @@ docs/adr/
   0004-scd2-design.md                        ← new
 transform/tests/singular/
   assert_scd2_no_overlap.sql                 ← new
+transform/models/marts/dimensions/
+  _unit_tests.yml                            ← new (SCD2 logic unit tests)
 ```
 
 `int_user_contributor_tier_snapshots` is materialized as `ephemeral`
 or `view` — large intermediate, no business consumers, builds at
 DAG time.
+
+The unit tests (in `_unit_tests.yml` or inline in `_models.yml`)
+are how we **demonstrate** the SCD2 logic without waiting for real
+history to accrue — see the "Demonstrating the SCD2 logic" decision
+above. They feed mocked multi-snapshot input and assert correct
+versioning.
 
 ## Implementation order
 
@@ -170,11 +234,15 @@ DAG time.
 6. `int_user_contributor_tier_snapshots` — derive tier per (user,
    snapshot).
 7. `dim_users` — Type 2 dim joining metadata to tier snapshots.
-8. `assert_scd2_no_overlap.sql` — the singular test.
-9. Update `fct_events` to join via the new SKs (optional — Week 7
-   dashboard work may not need it immediately).
-10. `dbt build --select staging+` green across the whole DAG.
-11. LEARNING_LOG Week 5 entry; LEARNING.md topical entries.
+8. **Unit tests** for the SCD2 logic — mocked multi-snapshot input,
+   assert correct versioning. This is the demonstration that the
+   logic works (prod history is forward-only and thin today).
+9. `assert_scd2_no_overlap.sql` — the singular test (guards prod;
+   trivially passes today, genuinely guards once history exists).
+10. Update `fct_events` to join via the new SKs (optional — Week 7
+    dashboard work may not need it immediately).
+11. `dbt build --select staging+` green across the whole DAG.
+12. LEARNING_LOG Week 5 entry; LEARNING.md topical entries.
 
 ## Verification
 
@@ -188,11 +256,15 @@ DAG time.
       through current + 90 days).
 - [ ] `assert_scd2_no_overlap.sql` passes: for each (repo_id, …)
       and each (user_id, …), no two rows have overlapping
-      [valid_from, valid_to) windows.
-- [ ] Spot-check: for a repo whose `star_bucket` flipped at a
-      known date, `dim_repos` has two rows — old bucket with
-      `valid_to = transition_date`, new bucket with
-      `valid_from = transition_date` and `is_current = true`.
+      [valid_from, valid_to) windows. (Passes trivially today with
+      one version per entity; genuinely guards once history accrues.)
+- [ ] **Unit tests pass** (`dbt test --select test_type:unit`):
+      given mocked two-snapshot input, the SCD2 dim produces two
+      correctly-windowed versions. This is the demonstration that
+      the logic is right — independent of prod history depth.
+- [ ] Spot-check today: each dim has **one version per entity**
+      (`is_current = true`, `valid_to = NULL`). This is *expected* —
+      forward-only history, only one snapshot day so far. Not a bug.
 - [ ] `dbt test --select dimensions` green: PK unique + not null
       on all dims.
 - [ ] `dbt build --select staging+` fully green; PASS count grows
@@ -240,9 +312,13 @@ Returns rows when any overlap is found. Zero rows = pass.
   with this domain.
 - **Snapshot tooling** (`dbt snapshot`) — using hand-rolled SCD2
   models per ADR 0004 (decided for learning value).
-- **Backfilling SCD2 history before the project started** — we
-  only have history from when raw ingestion started. Older
-  versions of the dim are unknowable.
+- **Backfilling SCD2 history before the project started** — the
+  GitHub API only returns current state; older versions of the dim
+  are genuinely unknowable. History is forward-only.
+- **Synthesizing fabricated backdated snapshots** to make the demo
+  look populated — explicitly rejected. It would put fiction in the
+  warehouse. We demonstrate the logic with unit tests instead (see
+  the design-decisions section).
 - **`dim_organizations` as a separate dim** — orgs live in
   `dim_users` with `user_type = 'Organization'`.
 
