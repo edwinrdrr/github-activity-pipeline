@@ -1,0 +1,33 @@
+version: 2
+
+models:
+  - name: int_user_contributor_tier_snapshots
+    description: |
+      **Grain:** one row per (user, snapshot day).
+
+      Contributor tier derived from fct_events history as of each
+      snapshot. Tier rules: `new` (first event <30 days before snapshot,
+      or no events), `regular` (30-365 days and <10 distinct repos),
+      `core` (>365 days, or ≥10 distinct repos). Feeds the Type 2
+      `contributor_tier` in dim_users.
+
+      Materialized as a table to isolate the full fct_events scan it
+      requires — see docs/adr/0004-scd2-design.md.
+    columns:
+      - name: user_id
+        description: "GitHub user/org id."
+        data_tests:
+          - not_null
+      - name: snapshot_at
+        description: "The ingested_at of the metadata snapshot this tier is computed for."
+        data_tests:
+          - not_null
+      - name: contributor_tier
+        description: "new / regular / core as of this snapshot."
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: [new, regular, core]
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [user_id, snapshot_at]

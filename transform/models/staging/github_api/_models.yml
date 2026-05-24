@@ -3,15 +3,19 @@ version: 2
 models:
   - name: stg_github_api__repos
     description: |
-      One row per repo, sourced from the GitHub REST `/repos` endpoint. Renames API
-      fields to project conventions. Week 2: backed by seeds; Week 3 swaps to
-      `source('github_api', 'repos')`.
+      One row per (repo, ingestion-day) snapshot, sourced from the GitHub REST
+      `/repos` endpoint. Renames API fields to project conventions and keeps every
+      daily snapshot so dim_repos (Week 5) can build SCD2 history. Week 2: backed by
+      seeds; Week 3 swaps to `source('github_api', 'repos')`.
+    data_tests:
+      # Grain is (repo_id, ingested_at): one snapshot per repo per ingestion day.
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [repo_id, ingested_at]
     columns:
       - name: repo_id
-        description: "GitHub repository numeric id. PK."
+        description: "GitHub repository numeric id. Natural key (recurs across snapshots, so not unique alone)."
         data_tests:
           - not_null
-          - unique
       - name: repo_node_id
         description: "GraphQL node id (opaque)."
       - name: repo_name
@@ -62,22 +66,25 @@ models:
 
   - name: stg_github_api__users
     description: |
-      One row per user or organization, sourced from the GitHub REST `/users` endpoint.
-      `user_type` disambiguates User vs Organization (and rarely Bot). Week 2:
-      backed by seeds; Week 3 swaps to `source('github_api', 'users')`.
+      One row per (user, ingestion-day) snapshot, sourced from the GitHub REST
+      `/users` endpoint. `user_type` disambiguates User vs Organization (and rarely
+      Bot). Keeps every daily snapshot so dim_users (Week 5) can build SCD2 history.
+      Week 2: backed by seeds; Week 3 swaps to `source('github_api', 'users')`.
+    data_tests:
+      # Grain is (user_id, ingested_at): one snapshot per user per ingestion day.
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [user_id, ingested_at]
     columns:
       - name: user_id
-        description: "GitHub user/org numeric id. PK."
+        description: "GitHub user/org numeric id. Natural key (recurs across snapshots, so not unique alone)."
         data_tests:
           - not_null
-          - unique
       - name: user_node_id
         description: "GraphQL node id (opaque)."
       - name: user_login
         description: "Username or org slug at snapshot time."
         data_tests:
           - not_null
-          - unique
       - name: user_type
         description: "Account type — User, Organization, or Bot."
         data_tests:

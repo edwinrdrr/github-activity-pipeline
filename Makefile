@@ -1,4 +1,4 @@
-.PHONY: help debug deps run test build compile clean
+.PHONY: help debug deps seed run test build compile clean
 
 # Auto-load .env and export every var to recipe subshells, so dbt's
 # env_var() calls in profiles.yml see GOOGLE_APPLICATION_CREDENTIALS etc.
@@ -13,6 +13,7 @@ help:
 	@echo "Targets:"
 	@echo "  make debug              dbt debug (connection check)"
 	@echo "  make deps               dbt deps (install packages)"
+	@echo "  make seed  [ARGS=...]   dbt seed (load CSV seeds)"
 	@echo "  make run   [ARGS=...]   dbt run"
 	@echo "  make test  [ARGS=...]   dbt test"
 	@echo "  make build [ARGS=...]   dbt build (run + test)"
@@ -29,6 +30,9 @@ debug:
 deps:
 	cd $(DBT_DIR) && dbt deps
 
+seed:
+	cd $(DBT_DIR) && dbt seed $(ARGS)
+
 run:
 	cd $(DBT_DIR) && dbt run $(ARGS)
 
@@ -39,7 +43,7 @@ build:
 	cd $(DBT_DIR) && dbt build $(ARGS)
 
 compile:
-	cd $(DBT_DIR) && dbt compile
+	cd $(DBT_DIR) && dbt compile $(ARGS)
 
 clean:
 	cd $(DBT_DIR) && dbt clean

@@ -1,0 +1,47 @@
+version: 2
+
+# These prove the SCD2 versioning logic with mocked multi-snapshot input.
+# Prod history is forward-only and thin (one snapshot day so far), so the
+# live dims show one version per entity — these tests are what demonstrate
+# the logic is correct independent of how much real history has accrued.
+# See docs/adr/0004-scd2-design.md.
+
+unit_tests:
+  - name: dim_repos_new_version_on_star_bucket_change
+    description: Two snapshots crossing a star-bucket boundary produce two correctly-windowed versions.
+    model: dim_repos
+    given:
+      - input: ref('stg_github_api__repos')
+        rows:
+          - {repo_id: 1, stargazers_count: 50,   is_archived: false, ingested_at: "2026-03-01 00:00:00", repo_full_name: "a/b", primary_language: "Go", repo_description: "x", repo_created_at: "2020-01-01 00:00:00", repo_pushed_at: "2026-03-01 00:00:00"}
+          - {repo_id: 1, stargazers_count: 5000, is_archived: false, ingested_at: "2026-04-01 00:00:00", repo_full_name: "a/b", primary_language: "Go", repo_description: "x", repo_created_at: "2020-01-01 00:00:00", repo_pushed_at: "2026-04-01 00:00:00"}
+    expect:
+      rows:
+        - {repo_id: 1, star_bucket: "small",  valid_from: "2026-03-01 00:00:00", valid_to: "2026-04-01 00:00:00", is_current: false}
+        - {repo_id: 1, star_bucket: "medium", valid_from: "2026-04-01 00:00:00", valid_to: null, is_current: true}
+
+  - name: dim_repos_collapses_unchanged_snapshots
+    description: Consecutive snapshots with no tracked-attribute change collapse into a single version.
+    model: dim_repos
+    given:
+      - input: ref('stg_github_api__repos')
+        rows:
+          - {repo_id: 2, stargazers_count: 10, is_archived: false, ingested_at: "2026-03-01 00:00:00", repo_full_name: "c/d", primary_language: "Rust", repo_description: "y", repo_created_at: "2021-01-01 00:00:00", repo_pushed_at: "2026-03-01 00:00:00"}
+          - {repo_id: 2, stargazers_count: 20, is_archived: false, ingested_at: "2026-03-02 00:00:00", repo_full_name: "c/d", primary_language: "Rust", repo_description: "y", repo_created_at: "2021-01-01 00:00:00", repo_pushed_at: "2026-03-02 00:00:00"}
+          - {repo_id: 2, stargazers_count: 30, is_archived: false, ingested_at: "2026-03-03 00:00:00", repo_full_name: "c/d", primary_language: "Rust", repo_description: "y", repo_created_at: "2021-01-01 00:00:00", repo_pushed_at: "2026-03-03 00:00:00"}
+    expect:
+      rows:
+        - {repo_id: 2, star_bucket: "small", valid_from: "2026-03-01 00:00:00", valid_to: null, is_current: true}
+
+  - name: dim_repos_new_version_on_archived_change
+    description: A change in is_archived opens a new version even when the star bucket is unchanged.
+    model: dim_repos
+    given:
+      - input: ref('stg_github_api__repos')
+        rows:
+          - {repo_id: 3, stargazers_count: 5, is_archived: false, ingested_at: "2026-03-01 00:00:00", repo_full_name: "e/f", primary_language: "C", repo_description: "z", repo_created_at: "2019-01-01 00:00:00", repo_pushed_at: "2026-03-01 00:00:00"}
+          - {repo_id: 3, stargazers_count: 5, is_archived: true,  ingested_at: "2026-03-05 00:00:00", repo_full_name: "e/f", primary_language: "C", repo_description: "z", repo_created_at: "2019-01-01 00:00:00", repo_pushed_at: "2026-03-01 00:00:00"}
+    expect:
+      rows:
+        - {repo_id: 3, is_archived: false, valid_from: "2026-03-01 00:00:00", valid_to: "2026-03-05 00:00:00", is_current: false}
+        - {repo_id: 3, is_archived: true,  valid_from: "2026-03-05 00:00:00", valid_to: null, is_current: true}

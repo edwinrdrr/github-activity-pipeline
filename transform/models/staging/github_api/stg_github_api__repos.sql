@@ -5,15 +5,11 @@ with source as (
     from {{ source('github_api', 'repos') }}
 ),
 
-latest as (
-    -- The raw table accumulates one snapshot per repo per day. The
-    -- staging view emits the most recent snapshot per repo; SCD2 history
-    -- is built in dim_repos (Week 5) from the raw layer directly.
-    select * from source
-    qualify row_number() over (partition by id order by ingested_at desc) = 1
-),
-
 renamed as (
+    -- The raw table accumulates one snapshot per repo per ingestion day.
+    -- Staging keeps EVERY snapshot (grain: repo_id × ingested_at) so the
+    -- SCD2 build in dim_repos (Week 5) can see the full history. Models
+    -- that want only the current row dedupe downstream.
     select
         id                 as repo_id,
         node_id            as repo_node_id,
@@ -32,7 +28,7 @@ renamed as (
         created_at         as repo_created_at,
         pushed_at          as repo_pushed_at,
         ingested_at
-    from latest
+    from source
 )
 
 select * from renamed

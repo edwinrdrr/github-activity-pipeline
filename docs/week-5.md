@@ -1,329 +1,473 @@
 # Week 5 — Dimensions, including SCD2 (the hardest week)
 
-> **Status:** ⏳ planned.
+> **Status:** ✅ done (shipped 2026-05-24). Following this file from the
+> Week-4 end state rebuilds every model, test, and exception and lands
+> on **`PASS=146 WARN=0 ERROR=0`**.
 >
-> Companion to [`docs/plan.md`](./plan.md) (multi-week roadmap) and
-> [`docs/adr/0004-scd2-design.md`](./adr/0004-scd2-design.md) (durable
-> SCD2 decisions — to be written before code). The high-level goal +
-> deliverables live in `plan.md` under
-> [Week 5](./plan.md#week-5--dimensions-including-scd2-the-hardest-week).
+> Companion to [`docs/adr/0004-scd2-design.md`](./adr/0004-scd2-design.md)
+> (the durable SCD2 *why*). Retrospective in
+> [`../LEARNING_LOG.md`](../LEARNING_LOG.md#week-5--dimensions--scd2).
 
 ## Goal
 
-Build the dimensions that hang off `fct_events`. **`dim_repos` and
-`dim_users` track history** via Type 2 SCD on the columns that
-matter analytically. **`dim_languages` and `dim_dates`** are simpler
-lookups. A singular test proves no SCD2 validity windows overlap.
+Build the dimensions that hang off `fct_events`. `dim_repos` and
+`dim_users` track history via **Type 2 SCD**; `dim_languages` and
+`dim_dates` are Type 1 lookups. A singular test proves no SCD2 validity
+windows overlap, and unit tests prove the versioning logic.
 
-**Effort:** ~10 hours. The hardest week of the plan — SCD2 is the
-part most candidates skip.
+**Effort:** ~10 hours.
 
 ## Prereqs
 
-[`week-4.md`](./week-4.md) shipped — `fct_events` is materialized,
-tests pass.
+[`week-4.md`](./week-4.md) shipped — `fct_events` is materialized and
+green. Packages installed (`make deps`): `dbt_utils`, `dbt_date`,
+`dbt_project_evaluator`.
 
-No new GCP surfaces. No new env vars. New dbt config in
-`dbt_project.yml` to add a `marts.dimensions` folder.
+> **Reality check:** `raw_github_api.*` has one snapshot day so far, so
+> the SCD2 dims will show **one version per entity** (`valid_to = NULL`,
+> `is_current = true`). That's correct — GitHub's API returns only
+> current state, so history is forward-only. Step 7's unit tests are
+> what prove the multi-version logic today.
 
-> **Reality check on history (read before building):** as of the
-> start of Week 5, `raw_github_api.*` has **exactly one snapshot
-> day** (the ingestion started ~Week 3). So the SCD2 dims will have
-> **one version per entity** until daily snapshots accrue over time.
-> See the "Forward-only history" decision below — this is correct,
-> not a bug.
+## Steps
 
-## Design decisions (to be recorded in ADR 0004)
+### 1. Write ADR 0004 (SCD2 design) — docs-first
 
-### Forward-only history (the load-bearing decision)
+Create `docs/adr/0004-scd2-design.md` (full text in that file). Record
+these decisions:
+- **Forward-only history** — starts at the first snapshot; never
+  fabricate backdated rows.
+- **Read all snapshots through staging** (step 3), not the source
+  directly — keeps the evaluator's "staging is the only source consumer"
+  audit green.
+- **Change-detection SCD2** — a new version only when a *tracked*
+  attribute changes; collapse unchanged snapshots.
+- **`table` full-rebuild**, not incremental-merge (tiny tables; merge
+  deferred).
+- **Demonstrate with unit tests**, since prod history is thin.
 
-**SCD2 history legitimately starts the day you start capturing it.**
-The GitHub API returns only *current* state — you cannot fetch what
-a repo's star count was last month. So the dims capture history
-**from the first snapshot forward**; earlier state is genuinely
-unknowable.
+### 2. Add the `dimensions` + seed-exception config to `dbt_project.yml`
 
-This means:
-
-- Today, every dim has one version per entity (`valid_from =
-  first snapshot`, `valid_to = NULL`, `is_current = true`).
-- As the daily extractor runs over coming days/weeks, real history
-  accrues and the dims become genuinely Type 2.
-
-**Do NOT synthesize backdated production rows** to make the demo
-look populated. Inserting a fabricated "2026-03 snapshot where
-facebook/react had fewer stars" puts fiction into the warehouse —
-downstream consumers would read it as truth. That's a data-
-integrity violation. Real warehouses live with forward-only
-history; so do we.
-
-### Demonstrating the SCD2 logic without fabricating data
-
-Since prod history is forward-only (and thin today), we **prove the
-SCD2 versioning logic with unit tests** (dbt 1.8+), not by polluting
-the prod table. A unit test feeds the *model* mocked multi-snapshot
-input and asserts correctly-versioned output:
+Under `models.github_activity.marts`, add a `dimensions` block; under
+`seeds`, disable the package's default exceptions seed (used in step 10):
 
 ```yaml
+    marts:
+      +materialized: table
+      +schema: marts
+      facts:
+        +materialized: incremental
+        +on_schema_change: append_new_columns
+      dimensions:
+        # SCD2 dims and Type 1 lookups all full-rebuild as tables —
+        # see docs/adr/0004-scd2-design.md.
+        +materialized: table
+
+seeds:
+  github_activity:
+    +schema: seeds
+  dbt_project_evaluator:
+    dbt_project_evaluator_exceptions:
+      +enabled: false
+```
+
+### 3. Repurpose the github_api staging models to keep ALL snapshots
+
+SCD2 needs every daily snapshot, but staging deduped to the latest. In
+**`transform/models/staging/github_api/stg_github_api__repos.sql`**,
+delete the `latest` CTE (the `qualify row_number() … = 1`) and select
+straight from `source`:
+
+```sql
+renamed as (
+    -- Keep EVERY snapshot (grain: repo_id × ingested_at) so dim_repos
+    -- can build SCD2 history.
+    select
+        id        as repo_id,
+        -- … (unchanged renames) …
+        pushed_at as repo_pushed_at,
+        ingested_at
+    from source        -- was: from latest
+)
+```
+
+Do the identical edit to `stg_github_api__users.sql` (drop its `latest`
+CTE, `from source`). Then in
+**`stg_github_api/_models.yml`** the PK is now composite — replace the
+column-level `unique` on `repo_id`/`user_id`/`user_login` with a
+model-level combination test:
+
+```yaml
+  - name: stg_github_api__repos
+    # description updated to "one row per (repo, ingestion-day) snapshot"
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [repo_id, ingested_at]
+    columns:
+      - name: repo_id
+        data_tests: [not_null]    # was: [not_null, unique]
+```
+
+(Same shape for `stg_github_api__users`: composite `[user_id,
+ingested_at]`, drop the `unique` on `user_id` and `user_login`.)
+
+### 4. Create `dim_repos` — Type 2 SCD
+
+**`transform/models/marts/dimensions/dim_repos.sql`**:
+
+```sql
+-- dim_repos — Type 2 SCD on (star_bucket, is_archived). A new version
+-- opens only when a tracked attribute changes between consecutive daily
+-- snapshots; unchanged snapshots collapse. See docs/adr/0004.
+
+with snapshots as (
+    select
+        repo_id, repo_full_name, repo_description, primary_language,
+        stargazers_count,
+        case
+            when stargazers_count < 100   then 'small'
+            when stargazers_count < 10000 then 'medium'
+            else 'large'
+        end as star_bucket,
+        is_archived, repo_created_at, repo_pushed_at, ingested_at
+    from {{ ref('stg_github_api__repos') }}
+),
+
+flagged as (
+    select *,
+        case
+            when lag(star_bucket) over w is distinct from star_bucket
+              or lag(is_archived)  over w is distinct from is_archived
+            then 1 else 0
+        end as is_version_start
+    from snapshots
+    window w as (partition by repo_id order by ingested_at)
+),
+
+versioned as (
+    select *,
+        sum(is_version_start) over (
+            partition by repo_id order by ingested_at
+            rows between unbounded preceding and current row
+        ) as version_num
+    from flagged
+),
+
+with_window as (
+    select *,
+        min(ingested_at) over (partition by repo_id, version_num) as valid_from
+    from versioned
+),
+
+collapsed as (
+    select * from with_window
+    qualify row_number() over (
+        partition by repo_id, version_num order by ingested_at desc
+    ) = 1
+),
+
+scd2 as (
+    select
+        {{ dbt_utils.generate_surrogate_key(['repo_id', 'valid_from']) }} as dim_repo_id,
+        repo_id, repo_full_name, repo_description, primary_language,
+        stargazers_count, star_bucket, is_archived,
+        repo_created_at, repo_pushed_at, valid_from,
+        lead(valid_from) over (partition by repo_id order by valid_from) as valid_to
+    from collapsed
+)
+
+select *, valid_to is null as is_current from scd2
+```
+
+`is distinct from` makes the first snapshot (lag NULL) and any
+`NULL→value` change a version boundary.
+
+### 5. Create `dim_languages` — Type 1
+
+**`dim_languages.sql`**:
+
+```sql
+with languages as (
+    select distinct primary_language as language_name
+    from {{ ref('dim_repos') }}
+    where primary_language is not null
+)
+select
+    {{ dbt_utils.generate_surrogate_key(['language_name']) }} as dim_language_id,
+    language_name
+from languages
+```
+
+### 6. Create `dim_dates` + the dimensions `_models.yml`, then build the cheap set
+
+**`dim_dates.sql`**:
+
+```sql
+{{ dbt_date.get_date_dimension("2024-01-01", "2027-12-31") }}
+```
+
+Create **`dimensions/_models.yml`** documenting all four dims with grain
+statements + tests (PK `not_null`+`unique`, `star_bucket`/`user_type`/
+`contributor_tier` `accepted_values`, `not_null` on validity columns,
+and a model-level `unique_combination_of_columns([natural_key,
+valid_from])` on each SCD2 dim). Full content is in that file.
+
+Build the non-`fct_events` dims:
+
+```bash
+make build ARGS='--select stg_github_api__repos stg_github_api__users dim_repos dim_languages dim_dates'
+```
+
+Expected:
+```
+OK created sql table model dbt_dev_edwin_marts.dim_dates ...... CREATE TABLE (1.5k rows ...)
+OK created sql table model dbt_dev_edwin_marts.dim_repos ...... CREATE TABLE (15.0 rows, 1.7 KiB ...)
+OK created sql table model dbt_dev_edwin_marts.dim_languages .. CREATE TABLE (9.0 rows ...)
+Done. PASS=23 WARN=0 ERROR=0 SKIP=0 TOTAL=23
+```
+(`dim_repos` = 15 rows, one version per repo — expected with one snapshot day.)
+
+### 7. Prove the SCD2 logic with unit tests
+
+Create **`dimensions/_unit_tests.yml`**. Mock the model's *direct*
+parent — `ref('stg_github_api__repos')`, not the source:
+
+```yaml
+version: 2
 unit_tests:
-  - name: scd2_creates_new_version_on_star_bucket_change
+  - name: dim_repos_new_version_on_star_bucket_change
+    model: dim_repos
     given:
-      - input: source('github_api', 'repos')
+      - input: ref('stg_github_api__repos')
         rows:
-          - {id: 1, stargazers_count: 50,   ingested_at: '2026-03-01 00:00:00', archived: false, full_name: 'a/b', language: 'Go'}
-          - {id: 1, stargazers_count: 5000, ingested_at: '2026-04-01 00:00:00', archived: false, full_name: 'a/b', language: 'Go'}
+          - {repo_id: 1, stargazers_count: 50,   is_archived: false, ingested_at: "2026-03-01 00:00:00", repo_full_name: "a/b", primary_language: "Go", repo_description: "x", repo_created_at: "2020-01-01 00:00:00", repo_pushed_at: "2026-03-01 00:00:00"}
+          - {repo_id: 1, stargazers_count: 5000, is_archived: false, ingested_at: "2026-04-01 00:00:00", repo_full_name: "a/b", primary_language: "Go", repo_description: "x", repo_created_at: "2020-01-01 00:00:00", repo_pushed_at: "2026-04-01 00:00:00"}
     expect:
       rows:
-        - {repo_id: 1, star_bucket: 'small',  valid_from: '2026-03-01 00:00:00', valid_to: '2026-04-01 00:00:00'}
-        - {repo_id: 1, star_bucket: 'medium', valid_from: '2026-04-01 00:00:00', valid_to: null}
+        - {repo_id: 1, star_bucket: "small",  valid_from: "2026-03-01 00:00:00", valid_to: "2026-04-01 00:00:00", is_current: false}
+        - {repo_id: 1, star_bucket: "medium", valid_from: "2026-04-01 00:00:00", valid_to: null, is_current: true}
+  # + dim_repos_collapses_unchanged_snapshots (3 snapshots, same bucket → 1 version)
+  # + dim_repos_new_version_on_archived_change (is_archived flip → 2 versions)
+  # (full fixtures in the file)
 ```
 
-This proves "two snapshots → two correctly-windowed versions"
-without inserting fiction into the warehouse. The mock data lives
-in the test; prod stays truthful. A reviewer who knows the field
-respects this far more than fabricated history.
-
-### Surrogate keys vs natural keys
-
-### Surrogate keys vs natural keys
-
-For each dim, we need to decide:
-
-- **Type 1 dims** (no history) — natural key is fine as PK.
-  `dim_languages`, `dim_dates` qualify.
-- **Type 2 dims** (history) — need surrogate keys, since the
-  natural key recurs across versions. `dim_repos`, `dim_users`.
-
-Surrogate generation: `dbt_utils.generate_surrogate_key(['natural_key',
-'ingested_at'])`. Deterministic; same input → same SK.
-
-### Which columns are Type 2
-
-For `dim_repos`:
-
-| Column | SCD type | Reasoning |
-|---|---|---|
-| `repo_id` (natural key) | — | Stable identifier |
-| `repo_full_name` | Type 1 | Renames rare; we follow the post-transfer name |
-| `repo_description` | Type 1 | Changes often; not analytically interesting |
-| `primary_language` | Type 1 | Could be Type 2 in theory; rarely matters |
-| `stargazers_count` | Type 1 | Always-current is what queries want |
-| **`star_bucket`** | **Type 2** | "When was this repo small / medium / large?" matters |
-| **`is_archived`** | **Type 2** | Archive status changes active-repos analysis |
-| `repo_created_at` | — | Immutable |
-| `repo_pushed_at` | Type 1 | Snapshot value; only current matters |
-
-For `dim_users`:
-
-| Column | SCD type | Reasoning |
-|---|---|---|
-| `user_id` (natural key) | — | Stable identifier |
-| `user_login` | Type 1 | Can rename; analyses care about current login |
-| `user_type` | Type 1 | Rarely changes (User → Org transitions are very rare) |
-| **`contributor_tier`** | **Type 2** | "What was Alice's tier when she opened that PR?" matters |
-| `user_company` | Type 1 | Free-form text; treating as current value |
-| `public_repos`, `followers`, `following` | Type 1 | Snapshot values |
-| `user_created_at` | — | Immutable |
-
-### Contributor tier (`dim_users.contributor_tier`)
-
-Defined from `fct_events` history, not from `raw_github_api.users`.
-For each (user, snapshot date):
-
-| Tier | Definition |
-|---|---|
-| `new` | First event < 30 days before snapshot, OR no events yet |
-| `regular` | First event 30-365 days before snapshot, fewer than 10 distinct repos contributed to |
-| `core` | First event > 365 days before snapshot, OR 10+ distinct repos contributed to |
-
-Computed in an intermediate model
-(`int_user_contributor_tier_snapshots`) that joins user-snapshot
-dates from `raw_github_api.users.ingested_at` against `fct_events`
-event history as of each snapshot.
-
-### Star bucket (`dim_repos.star_bucket`)
-
+Run:
+```bash
+make test ARGS='--select test_type:unit'
 ```
-small  : stargazers_count < 100
-medium : 100 ≤ stargazers_count < 10,000
-large  : stargazers_count ≥ 10,000
+Expected: `Done. PASS=3 WARN=0 ERROR=0`.
+
+### 8. Measure the tier scan cost BEFORE running it
+
+`dim_users.contributor_tier` is derived from `fct_events` history, which
+means a full-fact scan. Dry-run the compiled query first (free):
+
+```bash
+make compile ARGS='--select int_user_contributor_tier_snapshots'
+source .venv/bin/activate && set -a && source .env && set +a
+python - <<'PY'
+from google.cloud import bigquery
+sql = open("transform/target/compiled/github_activity/models/intermediate/int_user_contributor_tier_snapshots.sql").read()
+job = bigquery.Client().query(sql, job_config=bigquery.QueryJobConfig(dry_run=True))
+print(f"Dry-run: {job.total_bytes_processed/1024**3:.1f} GiB")
+PY
+```
+Expected: `Dry-run: 167.4 GiB` (≈ $1.02). Far under a naive estimate
+because BigQuery is columnar and the query touches 3 columns.
+
+### 9. Create the tier intermediate
+
+**`transform/models/intermediate/int_user_contributor_tier_snapshots.sql`**
+— materialized `table` (override the ephemeral default) to isolate that
+scan so `dim_users` rebuilds don't repeat it:
+
+```sql
+{{ config(materialized='table') }}
+
+with user_snapshots as (
+    select distinct user_id, ingested_at as snapshot_at, date(ingested_at) as snapshot_date
+    from {{ ref('stg_github_api__users') }}
+),
+events as (
+    select actor_id, repo_id, event_at from {{ ref('fct_events') }}
+),
+agg as (
+    select s.user_id, s.snapshot_at, s.snapshot_date,
+        min(e.event_at) as first_event_at,
+        count(distinct e.repo_id) as distinct_repos
+    from user_snapshots s
+    left join events e on e.actor_id = s.user_id and e.event_at <= s.snapshot_at
+    group by 1, 2, 3
+)
+select user_id, snapshot_at, snapshot_date, first_event_at, distinct_repos,
+    case
+        when first_event_at is null then 'new'
+        when date_diff(snapshot_date, date(first_event_at), day) < 30 then 'new'
+        when distinct_repos >= 10 then 'core'
+        when date_diff(snapshot_date, date(first_event_at), day) > 365 then 'core'
+        else 'regular'
+    end as contributor_tier
+from agg
 ```
 
-Computed from `raw_github_api.repos.stargazers_count` at each
-snapshot.
+Document it in **`intermediate/_models.yml`** (grain `(user_id,
+snapshot_at)`, `accepted_values` on `contributor_tier`).
 
-### Validity windows
+### 10. Create `dim_users` and build it + the intermediate
 
-Each Type 2 dim has:
+**`dim_users.sql`** — same change-detection pattern as `dim_repos`,
+tracking `contributor_tier`, joining metadata to the tier intermediate:
 
-- `valid_from` — the `ingested_at` of this snapshot.
-- `valid_to` — the `ingested_at` of the *next* snapshot for the
-  same entity (or NULL for the current version).
-- `is_current` — `valid_to IS NULL`.
-
-Computed via `lead(ingested_at) over (partition by id order by
-ingested_at)`. The lead-of-the-next-snapshot becomes the close of
-this version.
-
-### Materialization
-
-| Dim | Materialization | Strategy |
-|---|---|---|
-| `dim_repos` | `incremental` | `merge` (update valid_to on existing rows; insert new versions) |
-| `dim_users` | `incremental` | `merge` (same) |
-| `dim_languages` | `table` | Small enough; rebuilds in < 1s |
-| `dim_dates` | `table` | Generated once; rebuilds with `--full-refresh` if you need a wider date range |
-
-### `unique_key` for the merge strategy
-
-For incremental + merge, `unique_key` IS used (unlike
-`insert_overwrite`). Use the surrogate key:
-
-```python
-{{ config(
-  materialized='incremental',
-  unique_key='dim_repo_id',
-  incremental_strategy='merge'
-) }}
+```sql
+with snapshots as (
+    select u.user_id, u.user_login, u.user_type, u.user_company,
+           u.public_repos, u.followers, u.user_created_at, u.ingested_at,
+           t.contributor_tier
+    from {{ ref('stg_github_api__users') }} u
+    join {{ ref('int_user_contributor_tier_snapshots') }} t
+        on t.user_id = u.user_id and t.snapshot_at = u.ingested_at
+),
+flagged as (
+    select *,
+        case when lag(contributor_tier) over w is distinct from contributor_tier
+             then 1 else 0 end as is_version_start
+    from snapshots window w as (partition by user_id order by ingested_at)
+),
+versioned as (
+    select *, sum(is_version_start) over (
+        partition by user_id order by ingested_at
+        rows between unbounded preceding and current row) as version_num
+    from flagged
+),
+with_window as (
+    select *, min(ingested_at) over (partition by user_id, version_num) as valid_from
+    from versioned
+),
+collapsed as (
+    select * from with_window
+    qualify row_number() over (partition by user_id, version_num order by ingested_at desc) = 1
+),
+scd2 as (
+    select
+        {{ dbt_utils.generate_surrogate_key(['user_id', 'valid_from']) }} as dim_user_id,
+        user_id, user_login, user_type, contributor_tier, user_company,
+        public_repos, followers, user_created_at, valid_from,
+        lead(valid_from) over (partition by user_id order by valid_from) as valid_to
+    from collapsed
+)
+select *, valid_to is null as is_current from scd2
 ```
 
-Each run computes new (entity, snapshot) pairs and merges them in.
-Updates `valid_to` on rows that previously had `is_current = true`
-(since the next snapshot just landed).
-
-## Module layout
-
+Build (this is the step that spends the ~$1):
+```bash
+make build ARGS='--select int_user_contributor_tier_snapshots dim_users'
 ```
-transform/models/intermediate/
-  _models.yml                                ← new
-  int_user_contributor_tier_snapshots.sql    ← new
-transform/models/marts/dimensions/
-  _models.yml                                ← new
-  dim_repos.sql                              ← new
-  dim_users.sql                              ← new
-  dim_languages.sql                          ← new
-  dim_dates.sql                              ← new (uses dbt_date)
-docs/adr/
-  0004-scd2-design.md                        ← new
-transform/tests/singular/
-  assert_scd2_no_overlap.sql                 ← new
-transform/models/marts/dimensions/
-  _unit_tests.yml                            ← new (SCD2 logic unit tests)
+Expected:
+```
+OK created sql table model dbt_dev_edwin_intermediate.int_user_contributor_tier_snapshots  CREATE TABLE (20.0 rows, 167.4 GiB processed)
+OK created sql table model dbt_dev_edwin_marts.dim_users ......  CREATE TABLE (20.0 rows, 1.7 KiB processed)
+Done. PASS=7 WARN=0 ERROR=0
+```
+The `1.7 KiB` on `dim_users` confirms it read the small intermediate, not the fact.
+
+### 11. Create the singular overlap test
+
+**`transform/tests/singular/assert_scd2_no_overlap.sql`** — returns any
+overlapping `[valid_from, valid_to)` pair for the same entity, across
+both SCD2 dims (full SQL in the file; the repo half shown):
+
+```sql
+with repo_overlaps as (
+    select 'dim_repos' as model, cast(a.repo_id as string) as natural_key,
+           a.dim_repo_id as a_sk, b.dim_repo_id as b_sk
+    from {{ ref('dim_repos') }} a
+    join {{ ref('dim_repos') }} b
+      on a.repo_id = b.repo_id and a.dim_repo_id <> b.dim_repo_id
+     and a.valid_from < coalesce(b.valid_to, timestamp('9999-12-31'))
+     and b.valid_from < coalesce(a.valid_to, timestamp('9999-12-31'))
+)
+-- union all the same pattern for dim_users
+select * from repo_overlaps
 ```
 
-`int_user_contributor_tier_snapshots` is materialized as `ephemeral`
-or `view` — large intermediate, no business consumers, builds at
-DAG time.
+### 12. Run the SCD2-dim tests (and beware partial parse)
 
-The unit tests (in `_unit_tests.yml` or inline in `_models.yml`)
-are how we **demonstrate** the SCD2 logic without waiting for real
-history to accrue — see the "Demonstrating the SCD2 logic" decision
-above. They feed mocked multi-snapshot input and assert correct
-versioning.
+```bash
+make test ARGS='--select dim_users assert_scd2_no_overlap --no-partial-parse'
+```
+Expected: `PASS assert_scd2_no_overlap`, `Done. PASS=10 WARN=0 ERROR=0`.
 
-## Implementation order
+> **Gotcha — `--no-partial-parse` is required here.** `dim_users`'s tests
+> and the singular test were first parsed when `dim_users` didn't exist,
+> so the cached manifest dropped them (`dbt ls` wouldn't list them and
+> `dbt test` said "nothing to do"). Forcing a full re-parse picks them up.
 
-1. ADR 0004 (SCD2 design) — docs-first.
-2. Fix the ADR-number drift in `plan.md` (it says `0003-scd2-design.md`;
-   should be `0004-scd2-design.md`).
-3. `dim_languages` first — Type 1, simplest. Get the
-   `models/marts/dimensions/` folder shape right.
-4. `dim_dates` — generate from `dbt_date.get_date_dimension()`.
-5. `dim_repos` — Type 2 dim. Iterate on the SCD2 SQL until the
-   overlap test passes.
-6. `int_user_contributor_tier_snapshots` — derive tier per (user,
-   snapshot).
-7. `dim_users` — Type 2 dim joining metadata to tier snapshots.
-8. **Unit tests** for the SCD2 logic — mocked multi-snapshot input,
-   assert correct versioning. This is the demonstration that the
-   logic works (prod history is forward-only and thin today).
-9. `assert_scd2_no_overlap.sql` — the singular test (guards prod;
-   trivially passes today, genuinely guards once history exists).
-10. Update `fct_events` to join via the new SKs (optional — Week 7
-    dashboard work may not need it immediately).
-11. `dbt build --select staging+` green across the whole DAG.
-12. LEARNING_LOG Week 5 entry; LEARNING.md topical entries.
+### 13. Keep `dbt_project_evaluator` at WARN=0 with documented exceptions
+
+Two audits fire on the new models — both legitimate. Find the
+identifying column by querying the audit table (e.g.
+`select * from dbt_dev_edwin.fct_root_models` → `child = dim_dates`).
+Create **`transform/seeds/dbt_project_evaluator_exceptions.csv`**:
+
+```csv
+fct_name,column_name,id_to_exclude
+fct_root_models,child,dim_dates
+fct_rejoining_of_upstream_concepts,child,dim_users
+```
+
+(`dim_dates` is a root model — generated, no refs; `dim_users`
+legitimately rejoins `stg_github_api__users`.) The `seeds:` config from
+step 2 disables the package's default seed so the `filter_exceptions`
+macro uses yours. Add a `seed` target to the `Makefile`
+(`cd $(DBT_DIR) && dbt seed $(ARGS)`) and load it:
+
+```bash
+make seed ARGS='--select dbt_project_evaluator_exceptions'
+make build ARGS='--select fct_root_models fct_rejoining_of_upstream_concepts --no-partial-parse'
+```
+Expected: both `is_empty_fct_*` tests PASS.
+
+### 14. Build the whole DAG green
+
+```bash
+make build ARGS='--select staging+ --exclude int_user_contributor_tier_snapshots --no-partial-parse'
+```
+(`--exclude` the intermediate to reuse its table and skip a second 167
+GiB scan.) Expected: **`Done. PASS=146 WARN=0 ERROR=0`**.
+
+### 15. Update tracking docs + log
+
+Flip the `docs/workflow.md` marts/intermediate badges to ✅, tick the
+`docs/plan.md` Week 5 boxes, and write the `LEARNING_LOG.md` Week 5
+entry + `LEARNING.md` topical notes.
 
 ## Verification
 
-- [ ] `dim_repos` builds incrementally. First run does a full backfill
-      from `raw_github_api.repos`; second run adds only new
-      (repo, ingested_at) pairs and updates `valid_to`.
-- [ ] `dim_users` builds incrementally; same pattern.
-- [ ] `dim_languages` lists every distinct `primary_language` from
-      `dim_repos`; one row each.
-- [ ] `dim_dates` covers the project's date range (e.g., 2024-01-01
-      through current + 90 days).
-- [ ] `assert_scd2_no_overlap.sql` passes: for each (repo_id, …)
-      and each (user_id, …), no two rows have overlapping
-      [valid_from, valid_to) windows. (Passes trivially today with
-      one version per entity; genuinely guards once history accrues.)
-- [ ] **Unit tests pass** (`dbt test --select test_type:unit`):
-      given mocked two-snapshot input, the SCD2 dim produces two
-      correctly-windowed versions. This is the demonstration that
-      the logic is right — independent of prod history depth.
-- [ ] Spot-check today: each dim has **one version per entity**
-      (`is_current = true`, `valid_to = NULL`). This is *expected* —
-      forward-only history, only one snapshot day so far. Not a bug.
-- [ ] `dbt test --select dimensions` green: PK unique + not null
-      on all dims.
-- [ ] `dbt build --select staging+` fully green; PASS count grows
-      by the new tests.
-- [ ] `_models.yml` documents every column with grain statement at
-      the top and SCD type called out in description for Type 2
-      columns.
-
-## The SCD2 overlap test
-
-```sql
--- transform/tests/singular/assert_scd2_no_overlap.sql
--- For each entity, no two version rows should have overlapping
--- [valid_from, valid_to) windows.
-
-with overlaps as (
-    select a.repo_id, a.dim_repo_id as a_sk, b.dim_repo_id as b_sk,
-           a.valid_from as a_from, a.valid_to as a_to,
-           b.valid_from as b_from, b.valid_to as b_to
-    from {{ ref('dim_repos') }} a
-    join {{ ref('dim_repos') }} b
-      on a.repo_id = b.repo_id
-      and a.dim_repo_id <> b.dim_repo_id
-      and a.valid_from < coalesce(b.valid_to, timestamp('9999-12-31'))
-      and b.valid_from < coalesce(a.valid_to, timestamp('9999-12-31'))
-)
-select * from overlaps
-
-union all
-
--- Same pattern for users
-select null, null, null, null, null, null, null
-from (select 1 as dummy) where 1=0
--- (Replace the union-all stub with a CTE for dim_users; this is the
--- planning sketch.)
-```
-
-Returns rows when any overlap is found. Zero rows = pass.
+- [x] `make build --select … dim_repos dim_languages dim_dates` →
+      `PASS=23 WARN=0`; `dim_repos` 15 rows (one version each),
+      `dim_languages` 9, `dim_dates` ~1,461.
+- [x] `make test --select test_type:unit` → 3/3 SCD2 unit tests PASS.
+- [x] Dry-run reports 167.4 GiB (~$1.02) for the tier scan before it runs.
+- [x] `make build --select int_user_contributor_tier_snapshots dim_users`
+      → `PASS=7`; `dim_users` reads the intermediate (1.7 KiB, not a re-scan).
+- [x] `make test --select dim_users assert_scd2_no_overlap --no-partial-parse`
+      → `PASS=10`, including `assert_scd2_no_overlap`.
+- [x] Each dim has one version per entity today (forward-only; expected).
+- [x] `dbt_project_evaluator` WARN=0 preserved via the exceptions seed.
+- [x] `make build --select staging+ …` → **`PASS=146 WARN=0 ERROR=0`**.
+- [x] `_models.yml` documents every column with grain + SCD type.
 
 ## Out of scope
 
-- **Per-event-type facts** (`fct_pull_requests`, `fct_issues`,
-  `fct_pushes`) — moved to Week 7+ if time allows.
-- **Bridge tables** (multi-valued relationships) — none needed
-  with this domain.
-- **Snapshot tooling** (`dbt snapshot`) — using hand-rolled SCD2
-  models per ADR 0004 (decided for learning value).
-- **Backfilling SCD2 history before the project started** — the
-  GitHub API only returns current state; older versions of the dim
-  are genuinely unknowable. History is forward-only.
-- **Synthesizing fabricated backdated snapshots** to make the demo
-  look populated — explicitly rejected. It would put fiction in the
-  warehouse. We demonstrate the logic with unit tests instead (see
-  the design-decisions section).
-- **`dim_organizations` as a separate dim** — orgs live in
-  `dim_users` with `user_type = 'Organization'`.
+- **Incremental-merge SCD2** — deferred; `table` rebuild is correct/cheap here.
+- **Per-event-type facts** — Week 7+ if time allows.
+- **`dbt snapshot`** — hand-rolled per ADR 0004 (learning value).
+- **Backfilling pre-project history / fabricated snapshots** — rejected;
+  history is forward-only, the unit tests demonstrate the logic.
+- **Making the tier scan cheap** (pre-aggregate / re-cluster on `actor_id`) — Week 6.
+- **Joining `fct_events` to the new SKs** — FK columns ready; as-of join lands Week 7 if needed.
 
 ## What's next
 
-Week 6 — Orchestration + CI. See [`week-6.md`](./week-6.md). The
-DAG will tie ingestion → marts → notifications into one
-scheduled run.
+Week 6 — Orchestration + CI. See [`week-6.md`](./week-6.md). The tier
+scan cost gets addressed there.

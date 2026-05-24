@@ -5,13 +5,10 @@ with source as (
     from {{ source('github_api', 'users') }}
 ),
 
-latest as (
-    -- Latest snapshot per user; SCD2 history is built in dim_users (Week 5).
-    select * from source
-    qualify row_number() over (partition by id order by ingested_at desc) = 1
-),
-
 renamed as (
+    -- Keep EVERY snapshot (grain: user_id × ingested_at) so the SCD2 build
+    -- in dim_users (Week 5) can see the full history. Models that want only
+    -- the current row dedupe downstream.
     select
         id                 as user_id,
         node_id            as user_node_id,
@@ -26,7 +23,7 @@ renamed as (
         `following`,
         created_at         as user_created_at,
         ingested_at
-    from latest
+    from source
 )
 
 select * from renamed

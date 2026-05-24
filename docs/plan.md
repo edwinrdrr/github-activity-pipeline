@@ -84,12 +84,12 @@ where the friction is highest (Weeks 1, 4, 5).
 **Detailed plan:** [week-5.md](./week-5.md)
 
 ### Deliverables
-- [ ] `dim_repos` (SCD2 on star-bucket + archived status)
-- [ ] `dim_users` (SCD2 on contributor tier: new / regular / core)
-- [ ] `dim_languages`, `dim_date` (use `dbt_date` package)
-- [ ] Singular test `assert_scd2_no_overlap.sql` proving no overlapping validity windows
-- [ ] `dim_*` documented with column-level descriptions + tests on PKs/FKs
-- [ ] ADR `docs/adr/0004-scd2-design.md` explaining the contributor-tier history model
+- [x] `dim_repos` (SCD2 on star-bucket + archived status)
+- [x] `dim_users` (SCD2 on contributor tier: new / regular / core)
+- [x] `dim_languages`, `dim_date` (use `dbt_date` package)
+- [x] Singular test `assert_scd2_no_overlap.sql` proving no overlapping validity windows
+- [x] `dim_*` documented with column-level descriptions + tests on PKs/FKs
+- [x] ADR `docs/adr/0004-scd2-design.md` explaining the contributor-tier history model
 
 ---
 

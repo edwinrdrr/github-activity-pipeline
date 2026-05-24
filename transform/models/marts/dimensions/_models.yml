@@ -1,0 +1,139 @@
+version: 2
+
+models:
+  - name: dim_repos
+    description: |
+      **Grain:** one row per repo *version* (`dim_repo_id`).
+
+      Type 2 SCD. A new version is emitted only when a tracked attribute
+      changes between consecutive daily snapshots; unchanged snapshots
+      collapse. Tracked (Type 2) columns: `star_bucket`, `is_archived`.
+      All other columns are Type 1 (current-value, carried from the
+      version's latest snapshot). History is forward-only — see
+      [`docs/adr/0004-scd2-design.md`](../../../docs/adr/0004-scd2-design.md).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [repo_id, valid_from]
+    columns:
+      - name: dim_repo_id
+        description: "Surrogate PK: hash of (repo_id, valid_from). One per version."
+        data_tests:
+          - not_null
+          - unique
+      - name: repo_id
+        description: "GitHub repository numeric id. Natural key (recurs across versions). FK target for fct_events.repo_id."
+        data_tests:
+          - not_null
+      - name: repo_full_name
+        description: "owner/repo (Type 1)."
+      - name: repo_description
+        description: "Short description (Type 1)."
+      - name: primary_language
+        description: "GitHub-detected primary language (Type 1); may be null."
+      - name: stargazers_count
+        description: "Star count at the version's latest snapshot (Type 1)."
+      - name: star_bucket
+        description: "**Type 2.** Star tier: small (<100), medium (<10k), large (≥10k)."
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: [small, medium, large]
+      - name: is_archived
+        description: "**Type 2.** True if the repo was archived during this version's window."
+        data_tests:
+          - not_null
+      - name: repo_created_at
+        description: "Repo creation timestamp (immutable)."
+      - name: repo_pushed_at
+        description: "Last push at the version's latest snapshot (Type 1)."
+      - name: valid_from
+        description: "Inclusive start of this version's validity window (the version's first ingested_at)."
+        data_tests:
+          - not_null
+      - name: valid_to
+        description: "Exclusive end of the validity window; null for the current version."
+      - name: is_current
+        description: "True when valid_to is null (the live version)."
+        data_tests:
+          - not_null
+
+  - name: dim_users
+    description: |
+      **Grain:** one row per user/org *version* (`dim_user_id`).
+
+      Type 2 SCD on `contributor_tier` (derived from fct_events history
+      via int_user_contributor_tier_snapshots). All other columns are
+      Type 1. Organizations live here too (`user_type = 'Organization'`),
+      so there is no separate dim_organizations. Forward-only history —
+      see [`docs/adr/0004-scd2-design.md`](../../../docs/adr/0004-scd2-design.md).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [user_id, valid_from]
+    columns:
+      - name: dim_user_id
+        description: "Surrogate PK: hash of (user_id, valid_from). One per version."
+        data_tests:
+          - not_null
+          - unique
+      - name: user_id
+        description: "GitHub user/org numeric id. Natural key. FK target for fct_events.actor_id."
+        data_tests:
+          - not_null
+      - name: user_login
+        description: "Login at the version's latest snapshot (Type 1)."
+      - name: user_type
+        description: "User, Organization, or Bot (Type 1)."
+        data_tests:
+          - accepted_values:
+              values: [User, Organization, Bot]
+      - name: contributor_tier
+        description: "**Type 2.** new / regular / core, from event history as of each snapshot."
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: [new, regular, core]
+      - name: user_company
+        description: "Company string at the version's latest snapshot (Type 1)."
+      - name: public_repos
+        description: "Public repo count at the version's latest snapshot (Type 1)."
+      - name: followers
+        description: "Follower count at the version's latest snapshot (Type 1)."
+      - name: user_created_at
+        description: "Account creation timestamp (immutable)."
+      - name: valid_from
+        description: "Inclusive start of this version's validity window."
+        data_tests:
+          - not_null
+      - name: valid_to
+        description: "Exclusive end; null for the current version."
+      - name: is_current
+        description: "True when valid_to is null."
+        data_tests:
+          - not_null
+
+  - name: dim_languages
+    description: |
+      **Grain:** one row per distinct programming language seen across
+      repo history (`dim_language_id`). Type 1 lookup.
+    columns:
+      - name: dim_language_id
+        description: "Surrogate PK: hash of language_name."
+        data_tests:
+          - not_null
+          - unique
+      - name: language_name
+        description: "GitHub-detected language name."
+        data_tests:
+          - not_null
+          - unique
+
+  - name: dim_dates
+    description: |
+      **Grain:** one row per calendar day (`date_day`), 2024-01-01 →
+      2027-12-31. Generated by `dbt_date.get_date_dimension()`. Type 1.
+    columns:
+      - name: date_day
+        description: "Calendar date. Natural PK."
+        data_tests:
+          - not_null
+          - unique
