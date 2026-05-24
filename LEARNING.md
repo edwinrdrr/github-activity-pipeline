@@ -707,6 +707,49 @@ alone.
 
 ---
 
+## Orchestration (Dagster)
+
+### dagster-dbt asset keys are folder-prefixed (W6)
+
+`@dbt_assets` keys each model by its directory path, not the bare name:
+the tier model is `AssetKey(["intermediate",
+"int_user_contributor_tier_snapshots"])`, `dim_users` is
+`["marts", "dim_users"]`. When `AssetSelection.keys(...)` raises
+`DagsterInvalidSubsetError`, the error's "did you mean …" line gives the
+real key. (W6)
+
+### Cost-splitting a DAG with `AssetSelection` (W6)
+
+To keep an expensive asset out of the daily run:
+`AssetSelection.all() - AssetSelection.keys(<asset>).downstream()`. The
+daily job got 60 assets, the weekly `.all()` 62 — the 2-asset diff (the
+~167 GiB tier subtree) *is* the cost guarantee. Verify by resolving both
+selections against `defs.get_asset_graph()`. (W6)
+
+### Don't annotate the Dagster `context` param (W6)
+
+`def my_asset(context: AssetExecutionContext)` failed
+`dagster definitions validate` in 1.8 with a message that confusingly
+lists that type as *allowed*. Leaving `context` unannotated works. (W6)
+
+### `dagster job execute` takes `-f`, not `-w` (W6)
+
+`validate` accepts `-w workspace.yaml`; `job execute` wants `-f <file>`
+(or `-m <module>`). The wrong flag exits 0 with a usage message — a
+silent no-op. Run with `PYTHONPATH=.` so `import ingestion` resolves, or
+rely on `workspace.yaml`'s `working_directory: .` under `dagster dev`. (W6)
+
+### CI for a BigQuery project: transform, don't ingest (W6)
+
+PR CI doesn't need a GitHub token or GCS — it reads the *existing*
+sources (GH Archive public dataset + the real `raw_github_api` tables)
+into a throwaway `dbt_ci_pr<N>` dataset, with `--vars
+"{gharchive_start_date: <yesterday>}"` so `fct_events` doesn't replay the
+full backfill. Drop the dataset in an `if: always()` step. Needs only the
+service-account key + project id as repo secrets. (W6)
+
+---
+
 ## Tooling & setup
 
 ### Make targets in this repo (W1)

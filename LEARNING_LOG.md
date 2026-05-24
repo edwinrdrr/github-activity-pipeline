@@ -182,6 +182,33 @@ show how I think and unstick myself, not to look polished.
 
 ---
 
+## Week 6 — Orchestration + CI
+**Dates:** 2026-05-25 → 2026-05-25
+**Hours:** ~_TBD_
+
+### What I built
+- A Dagster code location (`orchestration/dagster_project/definitions.py`): `dagster-dbt` loads every dbt model as an asset; ingestion is two assets (`raw_github_api/repos`, `.../users`) keyed to match the dbt `github_api` sources via a custom `DagsterDbtTranslator`, so the dbt models depend on them in one graph.
+- Two asset jobs + schedules: `daily_refresh` (06:00 UTC, **excludes** the ~167 GiB contributor-tier subtree) and `weekly_full_refresh` (Sun 07:00 UTC, includes it). A `run_failure_sensor` posts to Slack if `SLACK_WEBHOOK_URL` is set.
+- Made the Week-1 stub CI workflow real and cheap: `dbt build --target ci` with a 1-day `gharchive_start_date`, building existing sources into a throwaway per-PR dataset that's dropped after.
+- ADR 0005 (Dagster choice); README `## Cost` section; `make dagster` + `workspace.yaml`.
+
+### What I learned
+- **`dagster job execute -j daily_refresh` ran the whole pipeline end-to-end — RUN_SUCCESS in 4m10s.** Validating the definitions load is necessary but not sufficient; actually executing the job is the real proof the wiring works.
+- **The cost constraint becomes a one-liner with `AssetSelection`.** `AssetSelection.all() - AssetSelection.keys(<tier>).downstream()` is the daily job; proving `daily=60 / weekly=62` (the only diff being the tier + `dim_users`) is the verification that the 167 GiB scan can't run daily.
+- **dagster-dbt asset keys are folder-prefixed.** The tier model is `AssetKey(["intermediate", "int_user_contributor_tier_snapshots"])`, not the bare name — the dbt model's directory becomes the key prefix. The validation error's "did you mean …" suggestion is how I found it.
+- **CI for a BigQuery project still needs a warehouse connection**, but it doesn't need to replay the backfill: transform *existing* sources into a throwaway dataset with a 1-day window. No GitHub token / GCS in CI — it only transforms, never ingests.
+
+### What I got stuck on
+- **`dagster definitions validate` rejected `context: AssetExecutionContext`** with a confusing message that *lists* that type as allowed. Fix: leave the `context` parameter unannotated. Lost ~10 min.
+- **`dagster job execute -w workspace.yaml` is wrong** — `execute` takes `-f <file>` (or `-m`), not `-w`. The bad flag exited 0 with a usage message, so the "run" silently did nothing until I checked the log.
+
+### Open questions / to revisit
+- **CI is written but not yet run live** — needs `GCP_SA_KEY` + `GCP_PROJECT_ID` repo secrets and a first PR. Prove it before calling Week 6 fully closed.
+- **Local-only Dagster** means schedules only fire while `dagster dev` runs. A real deployment is out of scope, but worth noting as the obvious gap if this were production.
+- **`dim_users` is up to a week stale** between weekly rebuilds. An incremental tier model would remove both the staleness and the weekly 167 GiB scan — the real fix when volume justifies it.
+
+---
+
 ## Entry template (copy for each new week)
 
 ```
