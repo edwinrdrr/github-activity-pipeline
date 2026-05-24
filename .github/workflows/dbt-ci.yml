@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'transform/**'
+      - 'ingestion/**'
+      - 'requirements.txt'
       - '.github/workflows/dbt-ci.yml'
 
 env:
@@ -35,4 +37,25 @@ jobs:
         run: cp profiles.yml.example profiles.yml
 
       - run: dbt deps
-      - run: dbt build --target ci --fail-fast
+
+      # CI transforms EXISTING sources (the GH Archive public dataset + the
+      # real raw_github_api tables) into a throwaway per-PR dataset — no
+      # GitHub token or GCS needed. The 1-day gharchive_start_date keeps the
+      # fct_events scan cheap instead of replaying the full backfill.
+      - name: dbt build (ci target, 1-day GH Archive window)
+        run: |
+          GHARCHIVE_START=$(date -u -d '1 day ago' +%F)
+          dbt seed --target ci
+          dbt build --target ci --fail-fast --vars "{gharchive_start_date: $GHARCHIVE_START}"
+
+      - name: Drop the throwaway CI dataset
+        if: always()
+        run: |
+          python - <<'PY'
+          import os
+          from google.cloud import bigquery
+          client = bigquery.Client()
+          dataset = f"{client.project}.dbt_ci_{os.environ['DBT_CI_RUN_ID']}"
+          client.delete_dataset(dataset, delete_contents=True, not_found_ok=True)
+          print(f"dropped {dataset}")
+          PY

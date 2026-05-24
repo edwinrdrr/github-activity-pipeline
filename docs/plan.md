@@ -100,11 +100,11 @@ where the friction is highest (Weeks 1, 4, 5).
 **Detailed plan:** [week-6.md](./week-6.md)
 
 ### Deliverables
-- [ ] Dagster job assets defined in `orchestration/dagster_project/`
-- [ ] Daily schedule: extract → load → `dbt build` → notify
-- [ ] GitHub Actions workflow runs `dbt build --target ci` on every PR
-- [ ] Slack/email/webhook alert wired to dbt test failures
-- [ ] Cost note in README: "this pipeline costs $X/month at Y volume"
+- [x] Dagster job assets defined in `orchestration/dagster_project/`
+- [x] Daily schedule: extract → load → `dbt build` → notify (+ weekly full rebuild)
+- [ ] GitHub Actions workflow runs `dbt build --target ci` on every PR _(written + made cheap; live run pending repo secrets + first PR)_
+- [x] Slack/email/webhook alert wired to dbt test failures (run-failure sensor)
+- [x] Cost note in README: ~0.8 TiB/mo, within the BigQuery free tier
 
 ---
 

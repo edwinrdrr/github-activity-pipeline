@@ -1,4 +1,4 @@
-.PHONY: help debug deps seed run test build compile clean
+.PHONY: help debug deps seed run test build compile clean dagster
 
 # Auto-load .env and export every var to recipe subshells, so dbt's
 # env_var() calls in profiles.yml see GOOGLE_APPLICATION_CREDENTIALS etc.
@@ -47,3 +47,8 @@ compile:
 
 clean:
 	cd $(DBT_DIR) && dbt clean
+
+# Dagster runs from the repo root (workspace.yaml) so `import ingestion`
+# resolves; `dagster dev` auto-loads .env.
+dagster:
+	dagster dev

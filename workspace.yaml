@@ -1,0 +1,7 @@
+# Dagster code location for the pipeline. `working_directory: .` puts the
+# repo root on the path so `import ingestion...` resolves. `dagster dev`
+# loads `.env` from this directory automatically.
+load_from:
+  - python_file:
+      relative_path: orchestration/dagster_project/definitions.py
+      working_directory: .

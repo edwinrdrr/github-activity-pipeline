@@ -43,14 +43,33 @@ source provides (and the metadata-vs-events history asymmetry).
 | CI/CD          | GitHub Actions                      |
 | Dashboard      | Looker Studio                       |
 
+## Cost
+
+Estimated from measured per-run bytes (to be confirmed against
+`INFORMATION_SCHEMA.JOBS_BY_PROJECT` after a month of scheduled runs, in
+Week 8):
+
+| Item | Bytes scanned | Cadence | ~Monthly |
+|---|---|---|---|
+| `fct_events` incremental | 2.0 GiB | daily | ~60 GiB |
+| staging + dims + audits | <1 GiB | daily | ~25 GiB |
+| contributor-tier rebuild (`dim_users`) | 167 GiB | **weekly** | ~720 GiB |
+| **Total queries** | | | **~0.8 TiB/mo** |
+
+At ~0.8 TiB/mo this stays **within BigQuery's 1 TiB/mo on-demand free
+tier → ~$0/mo in query cost.** The tier scan is kept weekly (not daily)
+precisely to stay under that line — see [`docs/week-5.md`](./docs/week-5.md).
+Storage (mostly `fct_events`) and the local Dagster + GitHub Actions
+free tiers are the only other costs, all negligible at this volume.
+
 ## Engineering decisions
 
 _(fill in as you go — these are the talking points reviewers care about)_
 
-- Why BigQuery over Snowflake: _____
-- Why incremental materialization on `fct_events`: _____
-- Why SCD2 on `dim_users` instead of Type 1: _____
-- Cost: _$/month at _ events/day_
+- Why BigQuery over Snowflake: see [ADR 0001](./docs/adr/0001-bigquery-over-snowflake.md)
+- Why incremental materialization on `fct_events`: see [ADR 0003](./docs/adr/0003-incremental-strategy.md)
+- Why SCD2 on `dim_users` instead of Type 1: see [ADR 0004](./docs/adr/0004-scd2-design.md)
+- Cost: see the Cost section above (~$0/mo in queries, within the BQ free tier)
 
 ## Local setup
 

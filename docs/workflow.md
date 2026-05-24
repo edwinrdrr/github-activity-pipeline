@@ -113,18 +113,19 @@ Mermaid version deferred to the Week 8 README per
 - Backed by a `mart_dashboard_*` table (or BI Engine) to keep
   per-query cost trivial.
 
-### Orchestration                    ⏳ Week 6
-- Dagster project under `orchestration/dagster_project/`. Currently
-  an empty scaffold.
-- Planned DAG: `ingest_repos → ingest_users → load_to_bigquery →
-  dbt_build → notify`.
-- Daily schedule. Slack/email/webhook alert on dbt test failures.
+### Orchestration                    ✅ done (Week 6)
+- Dagster project under `orchestration/dagster_project/`; `dagster-dbt`
+  loads every dbt model as an asset, ingestion is two assets keyed to
+  the `github_api` sources. `daily_refresh` ran end-to-end (RUN_SUCCESS).
+- `daily_refresh` (06:00 UTC) = extract → load → `dbt build`, **excluding**
+  the ~167 GiB tier subtree; `weekly_full_refresh` (Sun 07:00 UTC)
+  includes it. Run-failure sensor → Slack (env-driven).
 
-### CI                               ⏳ Week 6
-- GitHub Actions workflow under `.github/workflows/`.
-- Runs `dbt build --target ci` on every PR.
-- Uses a CI-specific target with a small `vars.gharchive_start_date`
-  to keep PR scans cheap.
+### CI                               🚧 Week 6 (written; live run pending)
+- GitHub Actions workflow at `.github/workflows/dbt-ci.yml`.
+- Runs `dbt build --target ci` on every PR, with a 1-day
+  `gharchive_start_date` so it stays cheap; drops the per-PR dataset
+  after. Live run pending repo secrets (`GCP_SA_KEY`, `GCP_PROJECT_ID`).
 
 ## Tracing a single row
 
