@@ -117,9 +117,10 @@ badges and week-file `✅` banners are secondary and must match it; if
 they disagree, `plan.md` wins. **Week files are cumulative** — show a
 later edit to an earlier artifact in the *later* week; never retro-edit
 an earlier tutorial. The full build/rebuild flow (plan → build →
-document, the two reproduction modes, and the anti-patterns) is written
-out in [`docs/building-this-project.md`](docs/building-this-project.md);
-read it when in doubt.
+document, the two reproduction modes, and the anti-patterns) is the
+portable method in [`PLAYBOOK.md`](PLAYBOOK.md);
+[`docs/building-this-project.md`](docs/building-this-project.md) is this
+repo's instance of it. Read them when in doubt.
 
 ### Use the in-repo Makefile
 
