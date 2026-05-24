@@ -143,6 +143,37 @@ for GCS, a sample GET against the actual API endpoint, etc.).
 
 ---
 
+## Cost discipline
+
+This project burned **~$87 of trial credit in a month — entirely from
+repeated full-history scans during development.** These rules exist so it
+doesn't happen again. The portable version is in
+[`PLAYBOOK.md`](PLAYBOOK.md).
+
+- **Develop against ≤100 GB.** Never iterate a model against the full
+  source firehose. Narrow a huge source to a recent window in dev (e.g.
+  `--vars '{gharchive_start_date: <recent>}'`). Cap large facts with a
+  rolling window + `partition_expiration_days` — `fct_events` keeps 90
+  days (~31 GiB), not all history (~735 GiB). See ADR 0003.
+- **Dry-run before any big scan.** A BigQuery dry-run reports bytes for
+  free — check it before running a query/build that might scan more than
+  ~10 GB. (We dry-ran the 167 GiB tier scan before paying for it.)
+- **Never `--full-refresh` a large model casually.** Incremental models
+  only save from the 2nd run on; the cold-start full build re-scans
+  everything (~680 GiB here) — that was the $87. Build it once, or
+  bootstrap by cloning an existing table (`make bootstrap-prod` — a copy
+  job scans 0 bytes).
+- **Storage is the steady-state floor, not queries.** Bound stored data
+  (rolling windows, partition expiration); drop dev tables you don't
+  need. Know logical vs physical billing — time travel is free under
+  logical (the default) but billed under physical.
+- **Measure the culprit; don't guess.** `INFORMATION_SCHEMA.JOBS_BY_USER`
+  (free) gives bytes-billed per day/job — use it to find what's spending.
+- **Stay inside the free tier where you can.** BigQuery: 1 TiB/mo
+  queries + 10 GB storage free. Design steady-state runs to fit.
+
+---
+
 ## Git / Commits
 
 ### No `Co-Authored-By` trailers

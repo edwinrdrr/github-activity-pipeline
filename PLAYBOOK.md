@@ -102,6 +102,33 @@ What keeps "it reproduces" *true* over time:
 - **Retro-editing an earlier unit to match a later change.** Show the
   change in the later unit instead.
 
+## Cost discipline
+
+Cloud warehouses bill on **data scanned** (queries) and **data stored**.
+The cheapest bug to avoid is the expensive query you didn't need to run —
+on the project this playbook came from, repeated full-history scans
+during development burned ~$87 of credit before anyone noticed.
+
+- **Develop against a small slice (≤~100 GB).** Never iterate a model
+  against the full source firehose — narrow it to a recent window in dev.
+  Cap large fact tables with a **rolling window + partition expiration**
+  so storage stays bounded instead of growing forever.
+- **Estimate before you run.** Use the warehouse's dry-run / cost
+  preview (it's free) to see bytes scanned *before* running anything that
+  might scan a lot. If the estimate surprises you, stop.
+- **Cold-start is the expensive run.** Incremental models only save from
+  the *second* run on; the first build scans everything. Do it once, or
+  seed a new environment by **copying** an existing build (a copy bills
+  no scan) rather than re-running the backfill. Don't full-refresh large
+  models casually.
+- **Storage is the steady-state floor**, not queries. Bound stored data,
+  drop copies you don't need, and know your warehouse's storage billing
+  model (e.g. compressed vs uncompressed; whether retained/time-travel
+  data is billed).
+- **Measure, don't guess.** Query the warehouse's job-history metadata
+  (free) to find what actually spent the money, before optimizing.
+- **Know the free tier** and design steady-state runs to fit inside it.
+
 ## Adopting this in a repo
 
 **Minimum — and the only required step: copy this one file in.** The
