@@ -30,7 +30,7 @@ show how I think and unstick myself, not to look polished.
 ### What I learned
 - **dbt's three-layer model** (staging → intermediate → marts) is convention, not framework — `dbt init` doesn't generate it. The structure has to be set up deliberately.
 - **`_TABLE_SUFFIX` pruning** on BigQuery's wildcarded tables is how you cheaply query GH Archive — without it, you'd scan years of monthly tables.
-- **`+schema:` in `dbt_project.yml` appends to the default dataset name**, not replaces it. Our staging models land in `dbt_dev_edwin_staging`, not `staging`.
+- **`+schema:` in `dbt_project.yml` appends to the default dataset name**, not replaces it. Our staging models land in `dbt_dev_staging`, not `staging`.
 - **GCP Project IDs are globally unique and immutable.** `github-activity-pipeline` was taken; I ended up with `ithub-activity-pipeline` (missing the leading "g"). Lived with it — it only appears in `.env` and CLI output.
 - **dbt 1.8 deprecation:** the `tests:` YAML key is renamed to `data_tests:`. Caught the warning on first run and fixed it.
 
@@ -42,7 +42,7 @@ show how I think and unstick myself, not to look polished.
 
 ### Open questions / to revisit
 - The `accepted_values` test on `event_type` warned — there are event types in GH Archive not in my starter enum. **Deferred to Week 2** (folded into the "`dbt build` green" deliverable): `SELECT DISTINCT event_type` from the staging view, then either expand the enum or downgrade the test to a documented warn.
-- Catalog generation warned about missing datasets (`dbt_dev_edwin`, `raw_github_api`). The first will resolve naturally once non-staging models exist; the second once Week 3 ingestion lands. Worth confirming the warnings disappear then.
+- Catalog generation warned about missing datasets (`dbt_dev`, `raw_github_api`). The first will resolve naturally once non-staging models exist; the second once Week 3 ingestion lands. Worth confirming the warnings disappear then.
 - Should I migrate from `requirements.txt` to `pyproject.toml` + `uv.lock` for reproducibility? Defer to Week 2.
 - Worth adopting direnv locally to replace the hardcoded `DBT_PROFILES_DIR` absolute path? Defer until friction shows up on another machine.
 

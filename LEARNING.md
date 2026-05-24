@@ -29,9 +29,41 @@ physical tables to skip entirely. **The pruning happens before the scan,
 not after** — unfiltered cost is TB-scale, filtered cost is just the
 size of the included tables.
 
-Used in `stg_gharchive__events.sql` via the `gharchive_start_date`
-project variable. Full-history backfills are deliberately expensive
-(no pruning by design).
+Used in `stg_gharchive__events.sql` to prune to a recent rolling window.
+**But see the W6 gotcha below — getting the suffix format wrong silently
+disables pruning and scans everything.**
+
+### `_TABLE_SUFFIX` is the match *after* the literal prefix — got this wrong, scanned 680 GiB (W6)
+
+With source identifier `"20*"`, the wildcard is `…day.20*`, so
+`_TABLE_SUFFIX` is the part *after* `"20"` — for `day.20260220` it's
+`"260220"` (6 chars), **not** `"20260220"`. A filter
+`_TABLE_SUFFIX >= format_date('%Y%m%d', …)` ('20260220', 8 chars) is a
+length-mismatched string compare that matches *almost everything* → no
+pruning → full-backfill scan (~680 GiB) on **every** run. This silently
+drove ~$87 of cost. Fixes: use `format_date('%y%m%d', …)` to match the
+6-char suffix (or identifier `"*"` for the full 8-char suffix). Always
+**dry-run** to confirm the bytes actually drop. (W6)
+
+### Day-level incremental staging beats a monthly view (W6)
+
+A *view* over wildcard tables scans its whole `_TABLE_SUFFIX` window on
+every read — downstream filters on derived columns (e.g. `event_date`)
+can't prune the underlying tables. Two fixes compounded: (1) source the
+**day-level** tables (`day.20*`) so a 3-day lookback prunes to 3 tables,
+and (2) **materialize** staging as an incremental table partitioned by
+`event_date`, so the heavy scan happens once per new day and `fct_events`
+reads the cheap partitioned table. Also: select only the struct
+**subfields** you need (`actor.id`, not `actor`) and never `payload` —
+that alone cut a 95-day scan from 87 GiB to 31 GiB. (W6)
+
+### `maximum_bytes_billed`: a free hard cost cap (W6)
+
+Set `maximum_bytes_billed` in the dbt profile (per target). BigQuery
+**rejects** any query estimated to exceed it *before running it, at no
+charge* — the guardrail that catches an accidental full-history scan. We
+use 100 GiB; every legitimate query scans far less. It's the one control
+that would have *prevented* the $87, not just measured it after. (W6)
 
 ### 📖 Where each BQ dataset in this project came from (W1-W3)
 
@@ -40,9 +72,9 @@ non-public datasets. They're created by three different mechanisms:
 
 ```
 ithub-activity-pipeline/
-├── dbt_dev_edwin/              ← dbt-managed (profile default)
-├── dbt_dev_edwin_seeds/        ← dbt-managed (+schema: seeds)
-├── dbt_dev_edwin_staging/      ← dbt-managed (+schema: staging)
+├── dbt_dev/              ← dbt-managed (profile default)
+├── dbt_dev_seeds/        ← dbt-managed (+schema: seeds)
+├── dbt_dev_staging/      ← dbt-managed (+schema: staging)
 └── raw_github_api/             ← Python-managed (ingestion extractor)
 ```
 
@@ -50,11 +82,11 @@ ithub-activity-pipeline/
 `<profile-schema>_<+schema-suffix>` (with no suffix = the profile
 schema itself).
 
-- `profiles.yml` sets the base: `schema: dbt_dev_edwin`.
+- `profiles.yml` sets the base: `schema: dbt_dev`.
 - `dbt_project.yml` adds per-layer suffixes:
-  `staging: +schema: staging` → `dbt_dev_edwin_staging`,
-  `seeds: +schema: seeds` → `dbt_dev_edwin_seeds`.
-- `dbt_dev_edwin` (no suffix) holds anything that doesn't override
+  `staging: +schema: staging` → `dbt_dev_staging`,
+  `seeds: +schema: seeds` → `dbt_dev_seeds`.
+- `dbt_dev` (no suffix) holds anything that doesn't override
   `+schema:` — including the 26 audit tables from the
   `dbt_project_evaluator` package, which doesn't set its own `+schema:`.
 
@@ -68,7 +100,7 @@ client.create_dataset(dataset_ref, exists_ok=True)
 
 That's why `raw_github_api.repos` and `raw_github_api.users` are
 partitioned tables (the extractor sets `PARTITION BY DATE(ingested_at)`),
-while everything in `dbt_dev_edwin_*` is unpartitioned.
+while everything in `dbt_dev_*` is unpartitioned.
 
 **Object kinds (table vs view) depend on materialization config:**
 
@@ -431,7 +463,7 @@ models:
       +schema: staging
 ```
 
-Lands models in `dbt_dev_edwin_staging`, **not** `staging`. dbt
+Lands models in `dbt_dev_staging`, **not** `staging`. dbt
 prepends the profile's default dataset (`dbt_dev_<user>`) and treats
 `+schema:` as a suffix. To fully override, write a
 `generate_schema_name` macro.
