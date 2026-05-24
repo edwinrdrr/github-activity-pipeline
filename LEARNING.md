@@ -739,6 +739,20 @@ lists that type as *allowed*. Leaving `context` unannotated works. (W6)
 silent no-op. Run with `PYTHONPATH=.` so `import ingestion` resolves, or
 rely on `workspace.yaml`'s `working_directory: .` under `dagster dev`. (W6)
 
+### Interchangeable orchestrators via shared Make targets (W6)
+
+`dagster dev` is the local dev runner, not an always-on scheduler — in
+production Dagster runs as a deployed daemon + webserver + Postgres
+(Dagster+ or self-hosted k8s/Docker). A scheduled **GitHub Actions**
+workflow (`on: schedule:`) is an always-on cron for free, so it can be a
+*second, interchangeable* orchestrator. Keep them from duplicating logic
+by routing both through Make targets (`make pipeline-daily/weekly`): both
+just run the extractor CLI + `dbt build` with the right selection. The
+daily exclusion is one rule in two syntaxes — dbt `--exclude
+int_user_contributor_tier_snapshots+` and Dagster
+`AssetSelection.keys(...).downstream()` — verified to drop the same two
+models. (W6 — see ADR 0006.)
+
 ### CI for a BigQuery project: transform, don't ingest (W6)
 
 PR CI doesn't need a GitHub token or GCS — it reads the *existing*
