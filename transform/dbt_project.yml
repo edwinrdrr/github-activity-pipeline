@@ -16,9 +16,10 @@ clean-targets:
   - "dbt_packages"
 
 vars:
-  # Lower bound for partition pruning on the GH Archive source.
-  # Bump forward periodically; full-history backfills are deliberately expensive.
-  gharchive_start_date: '2024-01-01'
+  # How many days of day-level GH Archive tables stg_gharchive__events scans
+  # on a full-refresh (its rolling window). Incremental runs use a fixed
+  # 3-day lookback. CI shrinks this to a day or two. See ADR 0003.
+  gharchive_lookback_days: 95
 
 models:
   github_activity:

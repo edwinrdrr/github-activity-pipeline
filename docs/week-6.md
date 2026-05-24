@@ -230,17 +230,16 @@ assets; ~4 minutes). Or run `make dagster` and trigger it from the UI at
 A Week-1 stub existed but ran a full `dbt build --target ci` — which would
 replay the entire ~680 GiB GH Archive backfill on every PR. The fix: CI
 transforms *existing* sources (the GH Archive public dataset + the real
-`raw_github_api` tables) into a throwaway per-PR dataset, with a **1-day**
-`gharchive_start_date` so `fct_events` stays cheap. No GitHub token / GCS
-needed. Key steps:
+`raw_github_api` tables) into a throwaway per-PR dataset, with a **2-day**
+`gharchive_lookback_days` so the staging build stays cheap. No GitHub
+token / GCS needed. Key steps:
 
 ```yaml
       - run: dbt deps
-      - name: dbt build (ci target, 1-day GH Archive window)
+      - name: dbt build (ci target, 2-day GH Archive window)
         run: |
-          GHARCHIVE_START=$(date -u -d '1 day ago' +%F)
           dbt seed --target ci
-          dbt build --target ci --fail-fast --vars "{gharchive_start_date: $GHARCHIVE_START}"
+          dbt build --target ci --fail-fast --vars '{gharchive_lookback_days: 2}'
       - name: Drop the throwaway CI dataset
         if: always()
         run: |
@@ -316,7 +315,7 @@ make bootstrap-prod                    # do the copy (run once, at prod-enable)
 
 Dry-run output (real):
 ```
-source: <project>.dbt_dev_edwin_marts.fct_events  (7,502,072,273 rows, 735.6 GiB,
+source: <project>.dbt_dev_marts.fct_events  (7,502,072,273 rows, 735.6 GiB,
         partitioning=...field='event_date'...DAY, clustering=['repo_id', 'event_type'])
 dest:   <project>.prod_marts.fct_events
 ```

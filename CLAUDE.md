@@ -16,13 +16,13 @@ service accounts, IAM grants — explain what's being created **as part
 of the same response**. Don't defer to "we can document this later."
 
 Bad: run `dbt build`, get a green PASS, move on. Three days later
-the user asks "what's `dbt_dev_edwin` and why are there 26 tables in
+the user asks "what's `dbt_dev` and why are there 26 tables in
 it?"
 
 Good: run `dbt build`, then in the same response: "this just created
-`dbt_dev_edwin` (profile default, holds the 26 `dbt_project_evaluator`
-audit tables), `dbt_dev_edwin_staging` (3 views from our staging
-models), `dbt_dev_edwin_seeds` (the placeholder seeds from `dbt seed`)."
+`dbt_dev` (profile default, holds the 26 `dbt_project_evaluator`
+audit tables), `dbt_dev_staging` (3 views from our staging
+models), `dbt_dev_seeds` (the placeholder seeds from `dbt seed`)."
 
 Triggers — any of these warrant an explanation:
 - A new BQ dataset or table appears in the console.
@@ -31,7 +31,7 @@ Triggers — any of these warrant an explanation:
 - A new file lands in a directory the user hasn't seen yet.
 - A new env var is being read for the first time.
 
-Tone: concrete and named ("`dbt_dev_edwin_staging`", not "the staging
+Tone: concrete and named ("`dbt_dev_staging`", not "the staging
 dataset"). Identify the *mechanism* that made it (dbt config rule,
 direct Python call, GCP console click). One paragraph is enough.
 
@@ -152,9 +152,13 @@ doesn't happen again. The portable version is in
 
 - **Develop against ≤100 GB.** Never iterate a model against the full
   source firehose. Narrow a huge source to a recent window in dev (e.g.
-  `--vars '{gharchive_start_date: <recent>}'`). Cap large facts with a
+  `--vars '{gharchive_lookback_days: 2}'`). Cap large facts with a
   rolling window + `partition_expiration_days` — `fct_events` keeps 90
-  days (~31 GiB), not all history (~735 GiB). See ADR 0003.
+  days, and `stg_gharchive__events` reads **day-level** GH Archive tables
+  pruned by `_TABLE_SUFFIX` (~1 GiB/day, not 681 GiB). See ADR 0003.
+- **A hard guardrail is wired:** `maximum_bytes_billed: 100 GiB` in every
+  dbt profile target. BigQuery rejects (for free) any query that would
+  exceed it — which is what now blocks an accidental full-history scan.
 - **Dry-run before any big scan.** A BigQuery dry-run reports bytes for
   free — check it before running a query/build that might scan more than
   ~10 GB. (We dry-ran the 167 GiB tier scan before paying for it.)
@@ -282,8 +286,8 @@ the plan assumes 1.8 syntax.
   by `DATE(ingested_at)`, loaded with partition-scoped
   `WRITE_TRUNCATE` (idempotent re-runs). Created by the Python
   extractor, not dbt.
-- **dbt dev schema is `dbt_dev_edwin`**. Suffix rule:
-  `+schema: X` in `dbt_project.yml` makes `dbt_dev_edwin_X`, not `X`.
+- **dbt dev schema is `dbt_dev`**. Suffix rule:
+  `+schema: X` in `dbt_project.yml` makes `dbt_dev_X`, not `X`.
 - **GH Archive emits occasional duplicate rows** — `stg_gharchive__events`
   has a `qualify row_number()` dedup step. Same pattern for the
   `stg_github_api__*` latest-snapshot dedup.

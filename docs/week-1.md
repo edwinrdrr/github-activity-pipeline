@@ -199,7 +199,7 @@ make run ARGS='--select stg_gharchive__events'
 # equivalent: cd transform && dbt run --select stg_gharchive__events
 ```
 
-dbt creates a dataset `dbt_dev_<your-user>` (e.g. `dbt_dev_edwin`) and
+dbt creates a dataset `dbt_dev_<your-user>` (e.g. `dbt_dev`) and
 materializes the model as a *view* there. The view queries GH Archive's
 public dataset in place — nothing is copied into your project.
 
@@ -222,7 +222,7 @@ dbt docs generate
 dbt docs serve   # opens localhost:8080
 ```
 
-Catalog generation warns about missing datasets (`dbt_dev_edwin`,
+Catalog generation warns about missing datasets (`dbt_dev`,
 `raw_github_api`) — expected this early; they resolve as later models
 and Week 3 ingestion land. This is the same artifact that goes on
 GitHub Pages in Week 8, so confirm the lineage graph renders and is

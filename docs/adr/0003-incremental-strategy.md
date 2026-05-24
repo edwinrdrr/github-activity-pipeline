@@ -114,3 +114,30 @@ view (90 days is enough for its trend + 90-day-bus-factor panels). And
 "first event ever" effectively means "first event within the window."
 Acceptable given the project prioritizes a small, cheap footprint over
 long history. Widen the window (and the var/expiration) if that changes.
+
+## Update — day-level incremental staging (2026-05-25)
+
+Capping `fct_events` to 90 days wasn't enough: it still scanned ~680 GiB
+per run, because its source `stg_gharchive__events` was a **view** over
+the GH Archive **monthly** tables whose `_TABLE_SUFFIX` filter never
+actually pruned (the filter compared against the wrong digit count, so it
+matched every month back to 2021). Every build — incremental included —
+re-scanned the whole backfill. That was the real driver of the ~$87.
+
+Fix — `stg_gharchive__events` is now an **incremental table** over the
+**day-level** tables (`githubarchive.day.20*`):
+- `_TABLE_SUFFIX` is pruned to recent days — 3 days on incremental,
+  `var('gharchive_lookback_days', 95)` on full-refresh. (With identifier
+  `"20*"`, the suffix is the part *after* `"20"`, so the filter uses a
+  2-digit-year `%y%m%d` format.)
+- It selects only the needed struct **subfields** (never the full
+  `actor`/`repo`/`org` structs, never `payload`).
+- Partitioned by `event_date` (+ `partition_expiration_days`), so
+  `fct_events` prunes *it* in turn.
+
+Result: daily staging scan **~1.2 GiB**, full-refresh **~31 GiB** (both
+well under the `maximum_bytes_billed: 100 GiB` profile cap that now
+rejects any over-budget query for free). Cost: +~34 GiB storage for the
+materialized staging table (total footprint ~66 GiB, still under 100 GB)
+in exchange for ~1 GiB daily scans instead of ~680 GiB. The dev dataset
+was also renamed `dbt_dev_<user>` → `dbt_dev` in this pass.

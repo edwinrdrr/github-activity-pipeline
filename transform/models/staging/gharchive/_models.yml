@@ -2,14 +2,17 @@ version: 2
 
 models:
   - name: stg_gharchive__events
-    description: "Cleaned, renamed GH Archive event stream. One row per public GitHub event."
+    description: |
+      Cleaned, renamed GH Archive event stream — one row per public GitHub
+      event. Incremental table over the **day-level** GH Archive tables,
+      partitioned by event_date; `payload` is dropped to keep scans and
+      storage small (it's the bulk of GH Archive's bytes). See ADR 0003.
     columns:
       - name: event_id
         description: |
           GH Archive event id (string). Unique per event. The `unique` test is
-          scoped to the last 7 days via config.where — testing uniqueness across
-          the full ~3B-row view would scan TBs every run. The 7-day window is a
-          cheap canary that still catches ingestion bugs quickly.
+          scoped to the last 7 days via config.where — a cheap canary that
+          catches ingestion bugs without scanning the whole table.
         data_tests:
           - not_null
           - unique:
@@ -61,5 +64,3 @@ models:
         description: "GitHub organization login if applicable."
       - name: is_public
         description: "Always true in GH Archive (only public events are published)."
-      - name: event_payload
-        description: "Raw event payload JSON. Schema varies by event_type; flattened downstream as needed."

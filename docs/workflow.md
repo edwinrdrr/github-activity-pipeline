@@ -127,8 +127,8 @@ Mermaid version deferred to the Week 8 README per
 
 ### CI                               🚧 Week 6 (written; live run pending)
 - GitHub Actions workflow at `.github/workflows/dbt-ci.yml`.
-- Runs `dbt build --target ci` on every PR, with a 1-day
-  `gharchive_start_date` so it stays cheap; drops the per-PR dataset
+- Runs `dbt build --target ci` on every PR, with a 2-day
+  `gharchive_lookback_days` so it stays cheap; drops the per-PR dataset
   after. Live run pending repo secrets (`GCP_SA_KEY`, `GCP_PROJECT_ID`).
 
 ## Tracing a single row

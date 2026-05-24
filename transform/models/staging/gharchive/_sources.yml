@@ -4,14 +4,20 @@ sources:
   - name: gharchive
     description: |
       GitHub Archive — every public GitHub event since 2011, published as the
-      public BigQuery dataset `githubarchive`. Monthly tables under `month.YYYYMM`.
+      public BigQuery dataset `githubarchive`. Day-level tables under
+      `day.YYYYMMDD`, queried via `_TABLE_SUFFIX` so we scan only recent
+      days (the monthly tables forced a full-backfill scan on every query —
+      see ADR 0003).
     database: githubarchive
-    schema: month
+    schema: day
     loaded_at_field: created_at
     freshness:
       warn_after:  {count: 48, period: hour}
       error_after: {count: 72, period: hour}
+      # Bound the freshness scan to recent days; without it, `dbt source
+      # freshness` would scan every day table back to 2015.
+      filter: "_TABLE_SUFFIX >= format_date('%Y%m%d', date_sub(current_date(), interval 2 day))"
     tables:
       - name: events
         identifier: "20*"
-        description: "Monthly partitioned events tables; query via _TABLE_SUFFIX."
+        description: "Per-day events tables (day.YYYYMMDD); query via _TABLE_SUFFIX."

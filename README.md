@@ -50,30 +50,29 @@ is in development, not steady-state**.
 
 **Steady-state (scheduled runs), measured per-run:**
 
-| Item | Bytes scanned | Cadence | ~Monthly |
-|---|---|---|---|
-| `fct_events` incremental | 2.0 GiB | daily | ~60 GiB |
-| staging + dims + audits | <1 GiB | daily | ~25 GiB |
-| contributor-tier rebuild (`dim_users`) | 167 GiB | **weekly** | ~720 GiB |
-| **Total queries** | | | **~0.8 TiB/mo** → within the 1 TiB free tier |
+| Item | Bytes scanned | Cadence |
+|---|---|---|
+| `stg_gharchive__events` incremental (day-level, `_TABLE_SUFFIX`-pruned) | ~1.2 GiB | daily |
+| `fct_events` incremental (reads the staging table) | ~1 GiB | daily |
+| contributor-tier rebuild (`dim_users`) | small | **weekly** |
 
-So steady-state **query** cost is ~$0; the floor is **storage**.
-`fct_events` was capped to a **rolling 90-day window**
-(`partition_expiration_days=90` + a 90-day full-refresh filter), which
-took it from 735 GiB / 7.5B rows down to **~31 GiB / 324M rows** — the
-whole project now stores **~31 GiB (≈ $0.6/mo)**, well under 100 GB. The
-weekly tier scan is kept off the daily path to stay under the free tier
-(see [`docs/week-5.md`](./docs/week-5.md)); the window cap is
+Query cost is effectively **$0** (well within the 1 TiB/mo free tier).
+**Storage** is the floor: `stg_gharchive__events` (~34 GiB) + `fct_events`
+(~32 GiB) ≈ **~66 GiB total (≈ $1.3/mo)**, under 100 GB. Both are rolling
+~90-day windows (`partition_expiration_days`); the staging table reads
+**day-level** GH Archive tables pruned by `_TABLE_SUFFIX`, so it scans new
+days only — not the full backfill.
+
+**A bug hid here, and it dominated the bill.** The original staging *view*
+scanned the whole GH Archive backfill (**~680 GiB**) on *every* query — a
+`_TABLE_SUFFIX` filter mismatch meant it never pruned. Iterating on it in
+May ran dozens of those scans — **~$87 of the $300 trial credit** (found
+via `INFORMATION_SCHEMA.JOBS_BY_USER`), all credit-covered ($0 out of
+pocket). The fixes: day-level pruning + selecting only needed columns
+(no `payload`), `make bootstrap-prod` to seed prod with a copy job (0 scan
+bytes), and a hard `maximum_bytes_billed: 100 GiB` cap in every dbt
+profile that rejects an over-budget query before it runs. See
 [ADR 0003](./docs/adr/0003-incremental-strategy.md).
-
-**Development cost dominates.** Each full-history scan of the GH Archive
-backfill (`fct_events --full-refresh`, or a broad `stg_gharchive__events`
-query) bills **~680 GiB**. Iterating on the model in May ran dozens of
-those — **~$87 of the $300 trial credit** (measured via
-`INFORMATION_SCHEMA.JOBS_BY_USER`), all credit-covered ($0 out of pocket).
-Mitigations: daily runs are incremental (~2 GiB), `make bootstrap-prod`
-seeds prod with a copy job (0 scan bytes), and `gharchive_start_date` can
-be narrowed so the backfill spans months, not years.
 
 ## Engineering decisions
 

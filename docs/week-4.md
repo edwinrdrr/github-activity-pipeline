@@ -66,8 +66,8 @@ models:
         +on_schema_change: append_new_columns
 ```
 
-`+schema: marts` makes the relation land in `dbt_dev_edwin_marts` (the
-suffix rule: `+schema: X` → `dbt_dev_edwin_X`, not `X`).
+`+schema: marts` makes the relation land in `dbt_dev_marts` (the
+suffix rule: `+schema: X` → `dbt_dev_X`, not `X`).
 `append_new_columns` lets new source columns land in touched partitions
 only — older partitions get the new column as NULL until a manual
 `--full-refresh`.
@@ -234,7 +234,7 @@ model-level `dbt_utils.recency` are `warn`-severity guards.
 make run ARGS='--select fct_events --full-refresh'
 ```
 
-Expected: the table builds at `dbt_dev_edwin_marts.fct_events` —
+Expected: the table builds at `dbt_dev_marts.fct_events` —
 **7.5 billion rows** (16+ months of GH Archive from 2024-01 forward),
 partitioned by `event_date` (DAY), clustered on `(repo_id, event_type)`.
 dbt's run summary surfaces **~679.8 GiB processed** in **~144s**. This
@@ -309,7 +309,7 @@ no badges.
 ## Verification
 
 - [x] `dbt run --select fct_events --full-refresh` succeeded; table
-      lives at `dbt_dev_edwin_marts.fct_events` — 7.5b rows,
+      lives at `dbt_dev_marts.fct_events` — 7.5b rows,
       partitioned by `event_date` (DAY), clustered on
       `(repo_id, event_type)`.
 - [x] `dbt run --select fct_events` (incremental) processed 2.0 GiB —

@@ -11,7 +11,7 @@ first prod run is just the cheap 3-day incremental on top.
 
 Usage:
     python scripts/bootstrap_prod_fct_events.py [--dry-run]
-        [--source-dataset dbt_dev_edwin_marts] [--dest-dataset prod_marts]
+        [--source-dataset dbt_dev_marts] [--dest-dataset prod_marts]
 
 Run this ONCE, right before enabling the prod scheduler. See docs/week-6.md.
 """
@@ -27,7 +27,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--source-dataset",
-        default=f"dbt_dev_{os.environ.get('USER', '')}_marts",
+        default="dbt_dev_marts",
         help="Dataset holding the already-built dev fct_events.",
     )
     parser.add_argument(

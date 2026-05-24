@@ -40,13 +40,12 @@ jobs:
 
       # CI transforms EXISTING sources (the GH Archive public dataset + the
       # real raw_github_api tables) into a throwaway per-PR dataset — no
-      # GitHub token or GCS needed. The 1-day gharchive_start_date keeps the
-      # fct_events scan cheap instead of replaying the full backfill.
-      - name: dbt build (ci target, 1-day GH Archive window)
+      # GitHub token or GCS needed. gharchive_lookback_days=2 keeps the
+      # staging full-refresh to two day-tables instead of the full window.
+      - name: dbt build (ci target, 2-day GH Archive window)
         run: |
-          GHARCHIVE_START=$(date -u -d '1 day ago' +%F)
           dbt seed --target ci
-          dbt build --target ci --fail-fast --vars "{gharchive_start_date: $GHARCHIVE_START}"
+          dbt build --target ci --fail-fast --vars '{gharchive_lookback_days: 2}'
 
       - name: Drop the throwaway CI dataset
         if: always()

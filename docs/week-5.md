@@ -220,9 +220,9 @@ make build ARGS='--select stg_github_api__repos stg_github_api__users dim_repos 
 
 Expected:
 ```
-OK created sql table model dbt_dev_edwin_marts.dim_dates ...... CREATE TABLE (1.5k rows ...)
-OK created sql table model dbt_dev_edwin_marts.dim_repos ...... CREATE TABLE (15.0 rows, 1.7 KiB ...)
-OK created sql table model dbt_dev_edwin_marts.dim_languages .. CREATE TABLE (9.0 rows ...)
+OK created sql table model dbt_dev_marts.dim_dates ...... CREATE TABLE (1.5k rows ...)
+OK created sql table model dbt_dev_marts.dim_repos ...... CREATE TABLE (15.0 rows, 1.7 KiB ...)
+OK created sql table model dbt_dev_marts.dim_languages .. CREATE TABLE (9.0 rows ...)
 Done. PASS=23 WARN=0 ERROR=0 SKIP=0 TOTAL=23
 ```
 (`dim_repos` = 15 rows, one version per repo — expected with one snapshot day.)
@@ -364,8 +364,8 @@ make build ARGS='--select int_user_contributor_tier_snapshots dim_users'
 ```
 Expected:
 ```
-OK created sql table model dbt_dev_edwin_intermediate.int_user_contributor_tier_snapshots  CREATE TABLE (20.0 rows, 167.4 GiB processed)
-OK created sql table model dbt_dev_edwin_marts.dim_users ......  CREATE TABLE (20.0 rows, 1.7 KiB processed)
+OK created sql table model dbt_dev_intermediate.int_user_contributor_tier_snapshots  CREATE TABLE (20.0 rows, 167.4 GiB processed)
+OK created sql table model dbt_dev_marts.dim_users ......  CREATE TABLE (20.0 rows, 1.7 KiB processed)
 Done. PASS=7 WARN=0 ERROR=0
 ```
 The `1.7 KiB` on `dim_users` confirms it read the small intermediate, not the fact.
@@ -406,7 +406,7 @@ Expected: `PASS assert_scd2_no_overlap`, `Done. PASS=10 WARN=0 ERROR=0`.
 
 Two audits fire on the new models — both legitimate. Find the
 identifying column by querying the audit table (e.g.
-`select * from dbt_dev_edwin.fct_root_models` → `child = dim_dates`).
+`select * from dbt_dev.fct_root_models` → `child = dim_dates`).
 Create **`transform/seeds/dbt_project_evaluator_exceptions.csv`**:
 
 ```csv
