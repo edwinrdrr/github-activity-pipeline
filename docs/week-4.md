@@ -4,12 +4,11 @@
 > confirmed live. Incremental run scanned **0.29%** of the full-refresh
 > bytes (deliverable: ≤10%). Retrospective lives in
 > [`../LEARNING_LOG.md`](../LEARNING_LOG.md#week-4--fct_events-incremental--partitioned).
->
-> Companion to [`docs/plan.md`](./plan.md) (multi-week roadmap) and
-> [`docs/adr/0003-incremental-strategy.md`](./adr/0003-incremental-strategy.md)
-> (durable design decisions). The high-level goal + deliverables live
-> in `plan.md` under
-> [Week 4](./plan.md#week-4--fct_events-incremental--partitioned).
+
+This file is a reproducible tutorial: starting from the Week-3 end
+state, following only these steps rebuilds `fct_events`. Every build
+step shows the full artifact, the exact command, and the real
+expected output.
 
 ## Goal
 
@@ -19,125 +18,266 @@ partitioned by `event_date`, clustered on `(repo_id, event_type)`. A
 daily incremental run scans ≤10% of the bytes a full refresh scans —
 the project's first deliberately cost-shaped model.
 
-**Effort:** ~8 hours.
-
 ## Prereqs
 
-You should have completed [`week-3.md`](./week-3.md). The staging
-layer is green; `stg_gharchive__events` (deduped, 12 columns) is
-ready to power the fact.
-
-No new GCP surfaces or external services this week. The dbt config
-in `transform/dbt_project.yml` already declares
-`marts.facts.+materialized: incremental` and
-`+on_schema_change: append_new_columns`.
+- [`week-3.md`](./week-3.md) complete: staging layer green;
+  `stg_gharchive__events` (deduped, 12 columns) ready to power the fact.
+- No new GCP surfaces this week.
+- `transform/dbt_project.yml` already declares the marts/facts config
+  used below (shown in Step 2).
+- The Makefile auto-loads `.env`, so `make run/test/build` work without
+  a per-shell `set -a && source .env` ritual.
 
 ## Steps
 
-### 1. Write ADR 0003 + this file (docs-first)
+### 1. Write ADR 0003 + fix the `plan.md` ADR-number typo (docs-first)
 
-Commit the design before the SQL, per the established cadence: ADR
-`docs/adr/0003-incremental-strategy.md` plus this `week-4.md`.
+Commit the design before the SQL. Create
+`docs/adr/0003-incremental-strategy.md` (the *why*: `insert_overwrite`
+over `merge`, 3-day lookback, dynamic partition discovery,
+`cluster_by` prefix selectivity, dropping `event_payload`), and correct
+the dangling `0002-incremental-strategy.md` →
+`0003-incremental-strategy.md` reference in `plan.md`.
 
-**Why:** the incremental design has several load-bearing choices that
-need to stay discoverable in 6 months. Recorded in
-[`adr/0003-incremental-strategy.md`](./adr/0003-incremental-strategy.md):
+**Why:** the incremental design has load-bearing choices that must stay
+discoverable in 6 months — see
+[`adr/0003-incremental-strategy.md`](./adr/0003-incremental-strategy.md).
+Don't paste it here; link it.
 
-- `incremental_strategy='insert_overwrite'` — BQ has no row-level
-  updates without a scan; partition-scoped writes are cheaper than
-  `merge`.
-- 3-day lookback for late arrivals — margin for a missed Friday-night
-  run.
-- Dynamic partition discovery (no `partitions_to_replace` list).
-- `cluster_by=['repo_id', 'event_type']` — prefix-selectivity, repo
-  filters lead in dashboard queries.
-- Drop `event_payload` from the fact — per-event-type facts come
-  later. Staging view stays as the ad-hoc escape hatch.
+### 2. Confirm the marts/facts config in `dbt_project.yml`
 
-### 2. Fix the ADR-number typo in `plan.md`
+The project-level config drives materialization and schema evolution
+for everything under `marts/facts/`:
 
-Correct `0002-incremental-strategy.md` → `0003-incremental-strategy.md`
-in `plan.md`.
+```yaml
+models:
+  github_activity:
+    marts:
+      +materialized: table
+      +schema: marts
+      facts:
+        +materialized: incremental
+        +on_schema_change: append_new_columns
+```
 
-**Why:** keep the roadmap's ADR references pointing at the real file
-numbers before anyone follows the link.
+`+schema: marts` makes the relation land in `dbt_dev_edwin_marts` (the
+suffix rule: `+schema: X` → `dbt_dev_edwin_X`, not `X`).
+`append_new_columns` lets new source columns land in touched partitions
+only — older partitions get the new column as NULL until a manual
+`--full-refresh`.
 
-### 3. Write `fct_events.sql` + `_models.yml`
+### 3. Create `fct_events.sql` + `_models.yml`
 
 Create the marts/facts module:
 
 ```
-transform/models/marts/
-  facts/
-    _models.yml              # grain statement + tests for fct_events
-    fct_events.sql           # the incremental fact (this week)
-docs/adr/
-  0003-incremental-strategy.md
+transform/models/marts/facts/
+  _models.yml          # grain statement + tests
+  fct_events.sql       # the incremental fact
 ```
 
-`fct_events.sql` ends with a `SELECT` of 11 columns (event_id,
-event_type, event_at, event_date, actor_id, actor_login, repo_id,
-repo_full_name, org_id, org_login, is_public). No `event_payload`.
+`transform/models/marts/facts/fct_events.sql`:
 
-**Why:** the `_models.yml` lives in the same folder as `fct_events.sql`
-per the dbt_project_evaluator structural audit (same convention we
-followed for the staging subfolders in Week 2 — see
-`stg_gharchive__events`'s sibling `_models.yml`). Dropping
-`event_payload` keeps the fact narrow; per-event-type facts will parse
-payloads later, and the staging view remains the ad-hoc escape hatch.
+```sql
+{{ config(
+  materialized='incremental',
+  incremental_strategy='insert_overwrite',
+  partition_by={'field': 'event_date', 'data_type': 'date', 'granularity': 'day'},
+  cluster_by=['repo_id', 'event_type']
+) }}
+
+with source as (
+    select *
+    from {{ ref('stg_gharchive__events') }}
+    {% if is_incremental() %}
+        -- 3-day lookback: margin for late-arriving rows and missed runs.
+        -- See docs/adr/0003-incremental-strategy.md for the SLA reasoning.
+        where event_date >= date_sub(current_date(), interval 3 day)
+    {% endif %}
+)
+
+select
+    event_id,
+    event_type,
+    event_at,
+    event_date,
+    actor_id,
+    actor_login,
+    repo_id,
+    repo_full_name,
+    org_id,
+    org_login,
+    is_public
+from source
+-- Drop rows missing FK columns (actor_id, repo_id). GH Archive
+-- contains a tiny tail of events (≈0.0002%) with NULL actor or NULL
+-- repo, typically very old or system-emitted. The fact requires
+-- valid FKs since Week 5 dim joins would silently drop these anyway.
+-- Filtering here makes the loss explicit and counted.
+where actor_id is not null
+  and repo_id  is not null
+```
+
+11 columns, no `event_payload`. The `is_incremental()` block adds the
+3-day `event_date` filter only on incremental runs (the full-refresh
+scans everything).
+
+`transform/models/marts/facts/_models.yml`:
+
+```yaml
+version: 2
+
+models:
+  - name: fct_events
+    description: |
+      **Grain:** one row per public GitHub event (`event_id`).
+
+      Central fact for the dashboard. Sourced from the deduped
+      `stg_gharchive__events` view. Materialized as a BigQuery
+      incremental table, partitioned by `event_date`, clustered on
+      `(repo_id, event_type)`. Daily incremental runs use
+      `insert_overwrite` with a 3-day lookback for late arrivals;
+      see [`docs/adr/0003-incremental-strategy.md`](../../docs/adr/0003-incremental-strategy.md).
+
+      `event_payload` is intentionally dropped — per-event-type facts
+      (`fct_pull_requests`, `fct_issues`, …) will parse the payload
+      with typed columns in Week 5+. The staging view remains the
+      ad-hoc surface for direct payload access.
+    data_tests:
+      # Model-level test — dbt_utils.recency doesn't accept the
+      # column_name arg dbt would inject under columns:.
+      - dbt_utils.recency:
+          datepart: hour
+          field: event_at
+          interval: 48
+          config:
+            severity: warn
+    columns:
+      - name: event_id
+        description: "GH Archive event id (string). PK; unique per event."
+        data_tests:
+          - not_null
+          - unique:
+              config:
+                # Mirror the staging 7-day canary. Uniqueness is global,
+                # so a full scan would bill ~50-100 GB; the rolling
+                # window catches recent ingestion bugs cheaply.
+                where: "event_date >= date_sub(current_date(), interval 7 day)"
+      - name: event_type
+        description: "Event class, e.g. PushEvent, PullRequestEvent. Mirrors stg_gharchive__events.event_type."
+        data_tests:
+          - not_null
+          - accepted_values:
+              values:
+                - PushEvent
+                - PullRequestEvent
+                - IssuesEvent
+                - IssueCommentEvent
+                - PullRequestReviewEvent
+                - PullRequestReviewCommentEvent
+                - WatchEvent
+                - ForkEvent
+                - CreateEvent
+                - DeleteEvent
+                - ReleaseEvent
+                - PublicEvent
+                - MemberEvent
+                - GollumEvent
+                - CommitCommentEvent
+                - DiscussionEvent
+              config:
+                severity: warn
+      - name: event_at
+        description: "Event timestamp (UTC). Recency tested at the model level above."
+        data_tests:
+          - not_null
+      - name: event_date
+        description: "Date partition key (UTC). Derived from event_at by staging."
+        data_tests:
+          - not_null
+      - name: actor_id
+        description: "GitHub user id of the actor. FK to dim_users (Week 5)."
+        data_tests:
+          - not_null
+      - name: actor_login
+        description: "Actor login at event time (denormalized; can change over time)."
+      - name: repo_id
+        description: "GitHub repository id. FK to dim_repos (Week 5)."
+        data_tests:
+          - not_null
+      - name: repo_full_name
+        description: "owner/repo at event time (denormalized; renames are not back-filled)."
+      - name: org_id
+        description: "GitHub organization id if the repo belongs to one; null otherwise."
+      - name: org_login
+        description: "GitHub organization login if applicable."
+      - name: is_public
+        description: "Always true in GH Archive (only public events are published)."
+```
+
+**Why:** `_models.yml` sits beside `fct_events.sql` per the
+dbt_project_evaluator structural audit (same convention as the staging
+subfolders). `not_null` guards the PK/FK/grain columns; the rolling
+`unique` on `event_id` (7-day `where`) catches recent ingestion bugs
+without billing a full-table scan; `accepted_values` and the
+model-level `dbt_utils.recency` are `warn`-severity guards.
 
 ### 4. Full-refresh run — capture the baseline
 
 ```
-dbt run --select fct_events --full-refresh
+make run ARGS='--select fct_events --full-refresh'
 ```
 
-Capture `total_bytes_billed` from
-`INFORMATION_SCHEMA.JOBS_BY_PROJECT`.
+Expected: the table builds at `dbt_dev_edwin_marts.fct_events` —
+**7.5 billion rows** (16+ months of GH Archive from 2024-01 forward),
+partitioned by `event_date` (DAY), clustered on `(repo_id, event_type)`.
+dbt's run summary surfaces **~679.8 GiB processed** in **~144s**. This
+is the 100% baseline.
 
-**Why:** measure billed bytes, not `total_bytes_processed` — billed is
-what BQ rounds to 10 MB minimums and what actually hits your wallet.
-This run is the 100% baseline the incremental run is compared against.
+**Why:** the full-refresh scans every monthly GH Archive table, so it
+is the worst-case cost the incremental run is measured against.
 
 ### 5. Incremental run — verify ≤10%
 
 ```
-dbt run --select fct_events
+make run ARGS='--select fct_events'
 ```
 
-(no `--full-refresh`). Capture `total_bytes_billed` again and confirm
-it is ≤10% of the baseline.
+Expected: **~2.0 GiB processed** in **~58s** = **0.29%** of the
+baseline — two orders of magnitude under the ≤10% target, a **~340×**
+bytes reduction.
 
-**Why:** the deliverable is "an incremental run scans ≤10% of a full
-refresh." Two compounding wins drive the reduction: (a) the source
-view's `_TABLE_SUFFIX` pruning on GH Archive limits scans to recent
-monthly tables, and (b) the 3-day `event_date` filter limits even
-further to the most recent partitions.
+**Why:** two compounding wins — (a) the staging view's `_TABLE_SUFFIX`
+pruning limits the source scan to recent monthly GH Archive tables, and
+(b) the `is_incremental()` 3-day `event_date` filter limits to the most
+recent partitions. Each is necessary; together they produce the 340×.
 
-### 6. Measure incremental vs full-refresh cost
+### 6. Cost evidence
 
-Numbers from this project's measurement (2026-05-21):
+Numbers measured on this project (2026-05-21):
 
 | Run mode | Bytes processed | Wall time | Ratio |
 |---|---|---|---|
-| `dbt run --select fct_events --full-refresh` | 679.8 GiB | 144 s | 100% (baseline) |
-| `dbt run --select fct_events` (incremental) | 2.0 GiB | 58 s | **0.29%** ✅ |
+| `make run ARGS='--select fct_events --full-refresh'` | 679.8 GiB | 144 s | 100% (baseline) |
+| `make run ARGS='--select fct_events'` (incremental) | 2.0 GiB | 58 s | **0.29%** ✅ |
 
 The incremental run is **~340× cheaper** in bytes scanned. The
 deliverable was "≤10%" — we're two orders of magnitude under that.
-Full refresh row count: 7.5 billion rows (16+ months of GH Archive
-events from 2024-01 forward).
 
-**Why:** the verification requires *evidence*, not a claim. Recording
-the measured table makes the cost win auditable.
+**How to measure bytes:** dbt's run summary surfaces "X GiB processed"
+per node. For a rigorous figure, query
+`INFORMATION_SCHEMA.JOBS_BY_PROJECT.total_bytes_billed` — billed bytes
+(not `total_bytes_processed`) are what BQ rounds to 10 MB minimums and
+what actually hits the wallet. Recording the table makes the cost win
+auditable rather than a claim.
 
 ### 7. Test the fact
 
 ```
-dbt test --select fct_events
+make test ARGS='--select fct_events'
 ```
 
-All green (9/9 — schema + recency).
+Expected: all green (**9/9** — schema + recency).
 
 **Why:** schema tests guard the column contract; the recency test
 confirms the incremental run actually advanced the data.
@@ -145,22 +285,20 @@ confirms the incremental run actually advanced the data.
 ### 8. Full pipeline build from clean state
 
 ```
-dbt build --select staging+
+make build ARGS='--select staging+'
 ```
 
-Green across the whole DAG.
-
-**Why:** confirms the new fact composes with the staging layer end to
-end, not just in isolation.
+Expected: green across the whole DAG — confirms the new fact composes
+with the staging layer end to end, not just in isolation.
 
 ### 9. Flip tracking docs + log
 
-Flip the `workflow.md` marts badge, tick the `plan.md` Week 4
-checkboxes, add the `LEARNING_LOG.md` Week 4 entry and the topical
-`LEARNING.md` entries.
+In the same set of commits: flip the `workflow.md` marts badge, tick
+the `plan.md` Week 4 checkboxes, add the `LEARNING_LOG.md` Week 4 entry
+and the topical `LEARNING.md` entries.
 
-**Why:** tracking docs ship in the same set of commits as the work —
-stale badges are worse than no badges.
+**Why:** tracking docs ship with the work — stale badges are worse than
+no badges.
 
 ## Verification
 
