@@ -23,11 +23,9 @@ declared, pipeline running daily.
 
 No new code. Pure polish.
 
-## Design decisions
+## Steps
 
-### What "portfolio-legible" actually means
-
-A reviewer's 90 seconds will look like:
+Every step targets one surface of the reviewer's 90 seconds:
 
 | Time | What they see |
 |---|---|
@@ -38,9 +36,41 @@ A reviewer's 90 seconds will look like:
 | 60-75s | A representative ADR — does the candidate think well? |
 | 75-90s | LEARNING_LOG.md — does the candidate reflect honestly? |
 
-Polish targets each of these surfaces.
+Module layout touched this week:
 
-### Architecture diagram — Mermaid
+```
+README.md                              ← rewrite with new architecture diagram + cost + dashboard link
+docs/workflow.md                       ← update all status badges to ✅
+docs/adr/0006-...md                    ← optional new ADR
+.github/workflows/publish-dbt-docs.yml ← new
+LEARNING_LOG.md                        ← audit + Week 7 + Week 8 entries
+docs/blog-post-draft.md                ← new, ~500-1000 words
+```
+
+### 1. Audit LEARNING_LOG.md — one complete entry per week (~45 min)
+
+Audit all 8 entries. Each should have:
+
+- Dates (concrete, not placeholder).
+- Hours estimate.
+- "What I built / learned / stuck on / open questions" — all four
+  sections populated.
+
+**Why:** Week 7 + 8 entries need to be written *during* those
+weeks, not retroactively at the end — the 75-90s slice of the
+reviewer's attention lands here, and a candidate who reflects
+honestly reads better than one with a pure success narrative.
+
+### 2. Measure cost from `JOBS_BY_PROJECT`
+
+After ~2 weeks of daily prod runs, query
+`INFORMATION_SCHEMA.JOBS_BY_PROJECT` aggregated by month; record
+the number.
+
+**Why:** The cost section needs concrete numbers from real
+measurement, not estimates.
+
+### 3. Rewrite the README architecture diagram in Mermaid (~30 min)
 
 Replace the ASCII diagram in README with a Mermaid version that
 renders properly on GitHub:
@@ -79,42 +109,13 @@ graph LR
     DAG -.daily.-> MART
 ```
 
-Renders in GitHub-flavored Markdown automatically.
+**Why:** Mermaid renders in GitHub-flavored Markdown automatically
+— the 0-15s slice depends on a diagram that actually shows up, not
+a pre-rendered image or raw ASCII.
 
-### dbt docs on GitHub Pages
+### 4. Add the cost section to the README
 
-`dbt docs generate` produces `target/index.html` plus
-`manifest.json` and `catalog.json`. Combined, they're a static
-site.
-
-To host on GitHub Pages:
-
-1. Add a `.github/workflows/publish-dbt-docs.yml` workflow.
-2. On push to main, the workflow runs `dbt docs generate` and
-   uploads `target/` to a `gh-pages` branch.
-3. GitHub Pages serves from `gh-pages`.
-4. URL: `https://<you>.github.io/github-activity-pipeline/`.
-
-Linked from the README.
-
-### ADRs to fill
-
-Plan calls for "all ADRs filled in." Current state at end of Week
-7:
-
-- ADR 0001 — BigQuery (filled).
-- ADR 0002 — Ingestion strategy (filled).
-- ADR 0003 — Incremental strategy (filled).
-- ADR 0004 — SCD2 design (filled in Week 5).
-- ADR 0005 — Orchestrator choice (filled in Week 6).
-
-Optional Week-8 additions:
-- ADR 0006 — Why pure Kimball, not Data Vault. (Sanity-check for
-  reviewers who'd ask.)
-
-### Cost section in README
-
-After ~2 weeks of daily prod runs, pull from `JOBS_BY_PROJECT`:
+Using the measured numbers from Step 2:
 
 ```
 ## Cost
@@ -131,25 +132,62 @@ Breakdown:
 Within the BQ free-tier limits (1 TiB/mo scanned, 10 GB storage).
 ```
 
-Concrete numbers from real measurement.
+**Why:** The 30-45s slice is where a reviewer judges whether the
+candidate understands what their pipeline costs.
 
-### LEARNING_LOG one entry per week
+### 5. Add the dashboard link + screenshot to the README header
 
-Audit all 8 entries. Each should have:
+Put the live dashboard link and a screenshot near the top.
 
-- Dates (concrete, not placeholder).
-- Hours estimate.
-- "What I built / learned / stuck on / open questions" — all four
-  sections populated.
+**Why:** The 15-30s slice is the click-through to the demo; it
+should be impossible to miss.
 
-Week 7 + 8 entries need to be written *during* those weeks, not
-retroactively at the end.
+### 6. Set up GitHub Pages for dbt docs (~30 min)
 
-### Blog post draft
+`dbt docs generate` produces `target/index.html` plus
+`manifest.json` and `catalog.json` — combined, a static site. To
+host:
 
-The final deliverable: a one-page summary blog post.
+1. Add a `.github/workflows/publish-dbt-docs.yml` workflow.
+2. On push to main, the workflow runs `dbt docs generate` and
+   uploads `target/` to a `gh-pages` branch.
+3. GitHub Pages serves from `gh-pages`.
+4. URL: `https://<you>.github.io/github-activity-pipeline/`.
 
-Format (recommended):
+Link it from the README.
+
+**Why:** A hosted dbt docs site gives reviewers the lineage graph
+without cloning the repo.
+
+### 7. Test the docs publish
+
+Push a commit; verify the dbt-docs site updates.
+
+**Why:** A workflow that has never published is unverified; a real
+push is the exercise.
+
+### 8. Fill the final ADRs
+
+Current state at end of Week 7:
+
+- ADR 0001 — BigQuery (filled).
+- ADR 0002 — Ingestion strategy (filled).
+- ADR 0003 — Incremental strategy (filled).
+- ADR 0004 — SCD2 design (filled in Week 5).
+- ADR 0005 — Orchestrator choice (filled in Week 6).
+
+Optional Week-8 addition:
+- ADR 0006 — Why pure Kimball, not Data Vault. (Sanity-check for
+  reviewers who'd ask.)
+
+**Why:** The 60-75s slice is a reviewer reading one representative
+ADR to judge how the candidate thinks; gaps here read as
+unfinished.
+
+### 9. Write the blog post draft
+
+Create `docs/blog-post-draft.md` (~500-1000 words). Audience:
+someone considering whether to interview you. Recommended format:
 
 ```
 # Building a github-activity warehouse: what I learned in 8 weeks
@@ -179,36 +217,39 @@ Format (recommended):
 - This blog post on dev.to / Medium / personal site
 ```
 
-Audience: someone considering whether to interview you.
+**Why:** The blog post is the final deliverable — the
+technical-storytelling artifact that turns the repo into a talking
+point.
 
-## Module layout
+### 10. Final polish pass
 
-```
-README.md                              ← rewrite with new architecture diagram + cost + dashboard link
-docs/workflow.md                       ← update all status badges to ✅
-docs/adr/0006-...md                    ← optional new ADR
-.github/workflows/publish-dbt-docs.yml ← new
-LEARNING_LOG.md                        ← audit + Week 7 + Week 8 entries
-docs/blog-post-draft.md                ← new, ~500-1000 words
-```
+Read the README through from a "reviewer with 90 seconds" POV,
+then sweep the details that matter:
 
-## Implementation order
+- **Spell-check the README.** Typos signal "didn't proofread."
+- **Verify every link.** Dead links signal "didn't test."
+- **Check the dashboard from a fresh browser.** Make sure "anyone
+  with the link" really works.
+- **Make sure the GitHub repo is *public***. Easy to forget.
+- **Pin the dbt + Python versions** in `requirements.txt`. A
+  reviewer cloning today should reproduce.
 
-1. Final round of LEARNING_LOG.md — make sure every week has a
-   complete entry.
-2. Cost measurement — query `JOBS_BY_PROJECT` aggregated by month;
-   record the number.
-3. Rewrite README's architecture diagram in Mermaid.
-4. Add cost section to README.
-5. Add the dashboard link + screenshot to README's header.
-6. Set up the GitHub Pages workflow for dbt docs.
-7. Test: push a commit; verify the dbt-docs site updates.
-8. Final ADRs (0006 optional).
-9. Write `docs/blog-post-draft.md`.
-10. Final read-through of README from a "reviewer with 90 seconds"
-    POV. Polish.
-11. Flip all `docs/workflow.md` badges to ✅.
-12. Final LEARNING_LOG Week 8 entry.
+**Why:** Polish is the whole point of Week 8 — small signals of
+care compound into "this person finishes things."
+
+### 11. Flip all `docs/workflow.md` badges to ✅
+
+No ⏳ should remain.
+
+**Why:** A board with stale ⏳ badges undercuts the "it's done"
+message.
+
+### 12. Final LEARNING_LOG Week 8 entry
+
+Write the closing Week 8 entry.
+
+**Why:** Tracking docs ship with the work, not later — and this is
+the last one.
 
 ## Verification
 
@@ -235,16 +276,6 @@ The "would I hire someone who built this?" test:
 - [ ] LEARNING_LOG is honest about mistakes (not just success
       narrative).
 - [ ] Costs are stated explicitly and within reason.
-
-## Polish details that matter
-
-- **Spell-check the README.** Typos signal "didn't proofread."
-- **Verify every link.** Dead links signal "didn't test."
-- **Check the dashboard from a fresh browser.** Make sure "anyone
-  with the link" really works.
-- **Make sure the GitHub repo is *public***. Easy to forget.
-- **Pin the dbt + Python versions** in `requirements.txt`. A
-  reviewer cloning today should reproduce.
 
 ## What this project becomes
 

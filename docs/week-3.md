@@ -27,7 +27,9 @@ across the staging layer.
 > `dbt-runner` service account, and a GitHub Personal Access Token to
 > lift the API rate limit. Plus a few new Python deps.
 
-### 1. New Python deps (~30 s)
+## Steps
+
+### 1. Install the new Python deps (~30 s)
 
 Week 3 adds four packages:
 
@@ -45,7 +47,7 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
-Prefer `python -m pip` over bare `pip` — if `pip` resolves to a
+**Why:** prefer `python -m pip` over bare `pip` — if `pip` resolves to a
 `pyenv` shim (it does on some setups), bare `pip install` will land
 packages in the wrong site-packages. The `-m pip` form forces the
 active interpreter to do the install.
@@ -74,6 +76,11 @@ In the GCP console:
    the volume justifies it.
 8. Click **Create**.
 
+**Why:** GCS is the replayable archive — the extractor splits fetch
+(write NDJSON to GCS) from load (GCS → BQ), so a bad load can be
+re-run from existing files without re-hitting the API. Recorded in
+[`adr/0002-ingestion-strategy.md`](./adr/0002-ingestion-strategy.md).
+
 **Success check:** bucket appears in the Cloud Storage listing.
 
 ### 3. Grant the dbt-runner service account access (~3 min)
@@ -90,18 +97,18 @@ In the GCP console:
    (`dbt-runner@ithub-activity-pipeline.iam.gserviceaccount.com` for
    this project — adjust to your actual project ID).
 3. **Role**: `Storage Object User`.
-   - This grants read, write, and overwrite on **objects inside the
-     bucket** (`storage.objects.*`), which is exactly what the
-     extractor does. It does **not** grant `storage.buckets.get` —
-     so calls like `bucket.exists()` and `client.list_buckets()`
-     will 403 with this role alone. That's expected and harmless;
-     the extractor never makes those calls. Use the upload-based
-     smoke test in §6 instead, which exercises the real permission.
-   - Why not `Storage Admin`? That role can delete the bucket
-     itself — broader than needed.
-   - Why not `Storage Object Creator`? Doesn't allow overwrite,
-     which we need for idempotent re-runs.
 4. Click **Save**.
+
+**Why:** `Storage Object User` grants read, write, and overwrite on
+**objects inside the bucket** (`storage.objects.*`), which is exactly
+what the extractor does. It does **not** grant `storage.buckets.get` —
+so calls like `bucket.exists()` and `client.list_buckets()` will 403
+with this role alone. That's expected and harmless; the extractor
+never makes those calls. Use the upload-based smoke test in step 6
+instead, which exercises the real permission. Not `Storage Admin` —
+that role can delete the bucket itself, broader than needed. Not
+`Storage Object Creator` — it doesn't allow overwrite, which we need
+for idempotent re-runs.
 
 **Success check:** the principal appears in the bucket's IAM list
 with the `Storage Object User` role.
@@ -117,17 +124,18 @@ already expects `GITHUB_TOKEN`).
 2. **Token name**: `github-activity-pipeline-ingestion` (or similar).
 3. **Expiration**: 90 days is fine; rotate when expiry hits.
 4. **Repository access**: **Public Repositories (read-only)**.
-   - This is the **whole reason scopes are unnecessary**: public-data
-     reads from `/repos/{owner}/{repo}` and `/users/{login}` need no
-     special permission — the token only authenticates you so GitHub
-     applies the higher rate limit.
-   - Picking this hides the "Repository permissions" section. An
-     "Account permissions" section stays visible with a default of
-     `Account 0` / "No account permissions added yet".
 5. **Account permissions**: leave at `0`. Do **not** click "+ Add
    permissions" — we want no account-level access.
 6. Click **Generate token**. **Copy it immediately** — the value is
    shown once.
+
+**Why:** public-data reads from `/repos/{owner}/{repo}` and
+`/users/{login}` need no special permission — the token only
+authenticates you so GitHub applies the higher rate limit, which is
+the whole reason scopes are unnecessary. Picking "Public Repositories
+(read-only)" hides the "Repository permissions" section; an "Account
+permissions" section stays visible with a default of `Account 0` /
+"No account permissions added yet".
 
 **Success check:** token starts with `github_pat_` (fine-grained
 prefix). Stash it for the next step.
@@ -145,23 +153,20 @@ Edit your `.env` (created in
 + GITHUB_TOKEN=github_pat_<the-token-you-just-generated>
 ```
 
-Notes:
-- `GCS_BUCKET` is the **bucket name only**, not a URI — no `gs://` prefix.
-- Don't quote the values; the Makefile's `include .env` doesn't strip quotes.
-
 Then re-source so the new values land in your shell:
 
 ```bash
 set -a && source .env && set +a
 ```
 
+**Why:** `GCS_BUCKET` is the **bucket name only**, not a URI — no
+`gs://` prefix. Don't quote the values; the Makefile's `include .env`
+doesn't strip quotes.
+
 ### 6. Verify connectivity (~1 min)
 
 Two checks: the GitHub PAT (lifts the rate limit) and the GCS bucket
-(can the service account write to it). The GCS test deliberately
-exercises `objects.create` + `objects.get` — the same calls the
-extractor makes — rather than `buckets.get` which would need a
-broader IAM role.
+(can the service account write to it).
 
 ```bash
 source .venv/bin/activate
@@ -182,6 +187,11 @@ PY
 # GCS bucket check (writes + reads a small object — the real perms the extractor uses)
 python scripts/smoketest_gcs.py
 ```
+
+**Why:** the GCS test deliberately exercises `objects.create` +
+`objects.get` — the same calls the extractor makes — rather than
+`buckets.get`, which would need a broader IAM role. `smoketest_gcs.py`
+is the canonical example of testing the real production API surface.
 
 **Success check:**
 
@@ -204,11 +214,13 @@ If both `upload_from_string` and `download_as_text` say OK, you're done.
 | `upload_from_string: FAIL — NotFound 404` | Bucket name typo, or wrong project | Verify `echo $GCS_BUCKET` matches the console; check it's in `$GCP_PROJECT_ID` |
 | `KeyError: 'GCS_BUCKET'` | Shell doesn't have the env var | `set -a && source .env && set +a` (re-source after every `.env` edit) |
 
-## Design decisions
+### 7. Land the ADR + this doc as a docs-only commit
 
-Recorded in detail in
-[`adr/0002-ingestion-strategy.md`](./adr/0002-ingestion-strategy.md).
-Summary:
+Land [`adr/0002-ingestion-strategy.md`](./adr/0002-ingestion-strategy.md)
+and this file before any code.
+
+**Why:** the durable decisions should be discoverable independently of
+the implementation. Summary of what `0002` records:
 
 - Static curated targets in `ingestion/targets.yml` (~15 repos + ~20
   users), with an `enabled` flag per entry.
@@ -220,7 +232,10 @@ Summary:
 - Raw `requests` + `tenacity`, not `PyGithub`.
 - Keep seeds renamed as `*_sample.csv` for credential-free contributors.
 
-## Module layout
+### 8. Build the extractor: `transform_*` + the BQ schema
+
+Build `ingestion/github_api_extractor.py` bottom-up, starting with the
+pure, testable transforms. The module layout:
 
 ```
 ingestion/
@@ -234,11 +249,76 @@ docs/adr/
   0002-ingestion-strategy.md
 ```
 
-BQ schemas live inline in the module as `bigquery.SchemaField` lists.
-No `schemas/*.json` files — promote to JSON only if Dagster needs to
-share them (Week 6).
+Define the BQ schemas inline as `bigquery.SchemaField` lists, matching
+the Week 2 seed column shape exactly:
 
-## CLI
+- **repos** (17 cols): `id, node_id, name, full_name, owner_id,
+  owner_login, description, fork, language, stargazers_count,
+  watchers_count, forks_count, open_issues_count, archived,
+  created_at, pushed_at, ingested_at`
+- **users** (13 cols): `id, node_id, login, type, site_admin,
+  name, company, location, public_repos, followers, following,
+  created_at, ingested_at`
+
+`transform_repo` / `transform_user` explicitly project these columns
+from the raw API response, dropping unknown keys.
+
+**Why:** explicit projection (not blind passthrough) keeps the schema
+stable when GitHub adds response fields. BQ schemas live inline as
+`SchemaField` lists — no `schemas/*.json` files; promote to JSON only
+if Dagster needs to share them (Week 6). `ingested_at` is set *once*
+at job start (`fetch_started_at`) and copied to every row — this
+prevents per-row micro-skew that would confuse Week 5's SCD2 logic.
+
+### 9. Build `fetch_*` with rate-limit handling
+
+Build the `fetch_*` functions on top of the transforms, using raw
+`requests` + `tenacity`.
+
+**Why:** rate-limit handling has three cases:
+
+- `tenacity` decorator for 5xx retries with exponential backoff.
+- Custom wait function reading response headers for two
+  GitHub-specific cases:
+  - **Primary limit**: 403 with `X-RateLimit-Remaining=0` → sleep
+    until `X-RateLimit-Reset` (epoch seconds).
+  - **Secondary limit**: 403 with `Retry-After` header → sleep
+    that many seconds.
+- 404 (deleted or renamed repo) → skip + write the failed target to
+  `gs://<bucket>/raw/github_api/<table>/dt=YYYY-MM-DD/_failures.ndjson`.
+  Do not fail the whole job for one bad row.
+
+Note GitHub follows repo-transfer redirects silently
+(`github/linguist` → `github-linguist/linguist`, `apple/swift` →
+`swiftlang/swift`); `ingestion/targets.yml` uses post-transfer names.
+
+### 10. Build `write_to_gcs`
+
+Write NDJSON to GCS in a Hive-partitioned layout:
+
+```
+gs://<bucket>/raw/github_api/repos/dt=YYYY-MM-DD/repos.ndjson
+gs://<bucket>/raw/github_api/users/dt=YYYY-MM-DD/users.ndjson
+gs://<bucket>/raw/github_api/<table>/dt=YYYY-MM-DD/_failures.ndjson
+```
+
+**Why:** Hive-style `dt=` partition naming, one file per table per day.
+Re-runs overwrite — idempotency lives in the load step.
+
+### 11. Build `load_to_bq` with partition-scoped truncate
+
+Load NDJSON from GCS into the matching BQ partition.
+
+**Why:** tables are created with `PARTITION BY DATE(ingested_at)`. The
+load job uses **partition-scoped `WRITE_TRUNCATE`** via
+`{table_id}${YYYYMMDD}` — re-running today's job overwrites *that
+partition only*, not the whole table, and not append. Also sets
+`ignore_unknown_values=True` as a belt-and-suspenders against GitHub
+adding response fields between releases.
+
+### 12. Wire up the CLI
+
+Put the CLI on top of the building blocks:
 
 ```bash
 # Fetch from GitHub, write NDJSON to GCS
@@ -251,56 +331,36 @@ python -m ingestion.github_api_extractor load  [--target=repos|users|all] [--dat
 python -m ingestion.github_api_extractor run   [--target=repos|users|all]
 ```
 
-`--date` defaults to today on `load`; populated to enable backfill
-from existing GCS files without re-hitting the API.
+**Why:** `--date` defaults to today on `load`; it's populated to enable
+backfill from existing GCS files without re-hitting the API.
 
-## Rate limit handling
+### 13. Write the tests
 
-- `tenacity` decorator for 5xx retries with exponential backoff.
-- Custom wait function reading response headers for two GitHub-specific
-  cases:
-  - **Primary limit**: 403 with `X-RateLimit-Remaining=0` → sleep
-    until `X-RateLimit-Reset` (epoch seconds).
-  - **Secondary limit**: 403 with `Retry-After` header → sleep
-    that many seconds.
-- 404 (deleted or renamed repo) → skip + write the failed target to
-  `gs://<bucket>/raw/github_api/<table>/dt=YYYY-MM-DD/_failures.ndjson`.
-  Do not fail the whole job for one bad row.
+`pytest` + `responses` for mocking `requests`. Coverage targets:
 
-## Schema and load semantics
+- `transform_repo` / `transform_user` — exact column projection,
+  type coercions, `ingested_at` propagation.
+- Retry behavior — `responses` returns 500 twice then 200; assert
+  three total calls.
+- Secondary rate limit — 403 with `Retry-After: 1` → mocked
+  `time.sleep` is called with `1`.
+- 404 → row goes to `_failures.ndjson`; main job exits 0.
 
-- Explicit `bigquery.SchemaField` lists, matching the Week 2 seed
-  column shape exactly:
-  - **repos** (17 cols): `id, node_id, name, full_name, owner_id,
-    owner_login, description, fork, language, stargazers_count,
-    watchers_count, forks_count, open_issues_count, archived,
-    created_at, pushed_at, ingested_at`
-  - **users** (13 cols): `id, node_id, login, type, site_admin,
-    name, company, location, public_repos, followers, following,
-    created_at, ingested_at`
-- `transform_repo` / `transform_user` explicitly project these
-  columns from the raw API response, dropping unknown keys.
-- Tables created with `PARTITION BY DATE(ingested_at)`.
-- Load job uses **partition-scoped `WRITE_TRUNCATE`** via
-  `{table_id}${YYYYMMDD}`. Also sets `ignore_unknown_values=True` as
-  a belt-and-suspenders against GitHub adding response fields between
-  releases.
-- `ingested_at` is set *once* at job start (`fetch_started_at`) and
-  copied to every row. Prevents per-row micro-skew that would confuse
-  Week 5's SCD2 logic.
+**Why:** not gating Week 3 merge on coverage targets — these four are
+the ones that matter.
 
-## GCS layout
+### 14. Run end-to-end against GitHub + GCS + BQ
 
-```
-gs://<bucket>/raw/github_api/repos/dt=YYYY-MM-DD/repos.ndjson
-gs://<bucket>/raw/github_api/users/dt=YYYY-MM-DD/users.ndjson
-gs://<bucket>/raw/github_api/<table>/dt=YYYY-MM-DD/_failures.ndjson
+```bash
+python -m ingestion.github_api_extractor run
 ```
 
-Hive-style `dt=` partition naming. One file per table per day.
-Re-runs overwrite — idempotency lives in the load step.
+**Why:** exercises the real fetch → GCS → BQ path before the dbt swap
+depends on it. This is the run that lands the first
+`raw_github_api.{repos,users}` partitions in BigQuery — created by the
+Python extractor, not dbt.
 
-## dbt source/seed swap (last step)
+### 15. Swap dbt staging to the real source
 
 1. Uncomment the `github_api` source block in
    [`../transform/models/staging/github_api/_sources.yml`](../transform/models/staging/github_api/_sources.yml).
@@ -319,35 +379,17 @@ Re-runs overwrite — idempotency lives in the load step.
      dev fixtures (loaded by `dbt seed`, not referenced by staging).
 4. Run `dbt build --select staging+` against the real source.
 
-## Tests
+**Why:** the `qualify` dedup gives a clean latest-snapshot view from a
+table that accumulates one partition per day. Renaming the seeds to
+`*_sample.csv` keeps a credential-free path for contributors — they can
+`dbt seed` the fixtures without GCS/GitHub access.
 
-`pytest` + `responses` for mocking `requests`. Coverage targets:
+### 16. Update tracking docs
 
-- `transform_repo` / `transform_user` — exact column projection,
-  type coercions, `ingested_at` propagation.
-- Retry behavior — `responses` returns 500 twice then 200; assert
-  three total calls.
-- Secondary rate limit — 403 with `Retry-After: 1` → mocked
-  `time.sleep` is called with `1`.
-- 404 → row goes to `_failures.ndjson`; main job exits 0.
+Add the LEARNING_LOG Week 3 entry and the LEARNING.md topical entries.
 
-Not gating Week 3 merge on coverage targets — these four are the
-ones that matter.
-
-## Implementation order
-
-1. Prereqs (deps installed, bucket exists, PAT in `.env`).
-2. Land [`adr/0002-ingestion-strategy.md`](./adr/0002-ingestion-strategy.md)
-   and this file as a docs-only commit.
-3. Build `github_api_extractor.py` bottom-up: `transform_*` first
-   (testable), then `fetch_*` (mocked tests), then `write_to_gcs`,
-   then `load_to_bq`. CLI on top.
-4. Tests alongside.
-5. End-to-end run: `python -m ingestion.github_api_extractor run`
-   against GitHub + GCS + BQ.
-6. dbt swap: uncomment source, repoint stg models, rename seeds.
-7. `dbt build --select staging+` green against real source.
-8. LEARNING_LOG Week 3 entry; LEARNING.md topical entries.
+**Why:** stale tracking docs are worse than none — flip these as part
+of the shipping work, not a later session.
 
 ## Verification
 

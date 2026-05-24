@@ -23,26 +23,73 @@ This is **the demo**. After Week 7, "look at the project" means
 [`week-6.md`](./week-6.md) shipped — pipeline runs daily; data is
 fresh; dimensions exist; CI is in place.
 
-New external surfaces:
+New external surfaces must exist before starting:
 
 - Looker Studio account (free; uses your Google account).
-- A public `mart_dashboard_*` table that the dashboard reads from.
+- A public `mart_dashboard_*` table that the dashboard reads from
+  (built in the steps below).
 
-## Design decisions
+## Steps
 
-### Why a dashboard mart, not direct queries against `fct_events`
+### 1. Build `mart_dashboard` — the OBT (~90 min)
 
-Looker Studio queries the warehouse on every dashboard load /
-filter change. If it queried `fct_events` directly, every view
-would scan ~MB of partitions. With a small `mart_dashboard_*`
-table (pre-aggregated), queries scan KB.
+Create `transform/models/marts/aggregates/mart_dashboard.sql`, the
+one-big-table joining `fct_events` + dims with the columns each
+panel needs. Materialize as:
 
-Build one mart per "panel" — or one wide OBT mart that powers
-several panels.
+```python
+{{ config(
+  materialized='table',
+  partition_by={'field': 'date_week', 'data_type': 'date', 'granularity': 'week'},
+  cluster_by=['primary_language']
+) }}
+```
 
-### Mart shape options
+This lands `dbt_dev_edwin_marts.mart_dashboard` (the `marts`
+suffix rule: `+schema: marts` makes `dbt_dev_edwin_marts`).
+Refreshed by the same Dagster DAG that runs the rest of dbt.
 
-**Option A — One OBT per panel.**
+The four panels it must feed, derived from the README questions:
+
+| # | Question | Visualization | Mart columns needed |
+|---|---|---|---|
+| 1 | Which languages are gaining/losing new contributors? | Line chart, weekly time series | `date_week`, `primary_language`, `n_new_contributors` |
+| 2 | What's the median time from first PR to second? | Histogram + per-language bar | `language`, `days_to_second_pr` (per contributor) |
+| 3 | Which repos have bus-factor-of-1 risk vs healthy pyramids? | Scatter or table | `repo`, `n_active_contributors_last_90d`, `top_contributor_share` |
+| 4 | How does activity correlate with repo characteristics? | Scatter / aggregated table | `repo`, `stargazers`, `age`, `license`, `events_last_90d` |
+
+Each panel reads from this OBT with appropriate filters and
+groupings.
+
+For Panel 3, compute the "bus factor" metric. "Bus factor" is a
+folk term — the number of contributors a repo could lose before it
+stalls. Operationalize it as:
+
+```
+For each repo, in the last 90 days:
+  contributors = distinct actors with ≥ 3 events
+  top_share = max contributor's event count / total events
+  
+bus_factor_label =
+  case
+    when top_share > 0.8 then 'bus_factor_1'  // dominated by one person
+    when top_share > 0.5 then 'bus_factor_low' // one person is most events
+    else 'healthy_pyramid'
+  end
+```
+
+This is one of several possible definitions. Document the choice
+in the mart's description so analysts know what the column means.
+
+**Why — one OBT, not direct queries against `fct_events`:** Looker
+Studio queries the warehouse on every dashboard load / filter
+change. If it queried `fct_events` directly, every view would scan
+~MB of partitions. With a small pre-aggregated `mart_dashboard_*`
+table, queries scan KB.
+
+**Why — Option B (one wide mart) over Option A (mart per panel):**
+
+Option A — one OBT per panel:
 
 ```
 mart_dashboard_language_trends   (date × language × event_type × n_events)
@@ -53,53 +100,46 @@ mart_dashboard_bus_factor        (repo × bus_factor_metric)
 
 Four small marts; each panel reads from one. Cleanest separation.
 
-**Option B — One wide mart for the whole dashboard.**
+Option B — one wide mart for the whole dashboard:
 
 ```
 mart_dashboard
   (date × repo × actor × event_type × event_count × derived metrics)
 ```
 
-Single source of truth. Each panel filters/groups differently.
-Looker Studio handles the rest. **Heavier but simpler in BI tool;
-fewer data sources.**
+Single source of truth. Each panel filters/groups differently;
+Looker Studio handles the rest. Heavier but simpler in the BI
+tool; fewer data sources. **Chosen: Option B** for portfolio scale
+— simpler in Looker Studio. Switch to Option A if dashboard
+performance suffers.
 
-**Recommended:** **Option B** for portfolio scale — simpler in
-Looker Studio. Switch to Option A if dashboard performance
-suffers.
+**Why this materialization:** A `table` (not `incremental` — small
+enough to fully rebuild on schedule). Partitioned by week for
+inexpensive filter queries from the dashboard.
 
-### The four panels (from README questions)
+### 2. Add tests on the mart
 
-| # | Question | Visualization | Mart columns needed |
-|---|---|---|---|
-| 1 | Which languages are gaining/losing new contributors? | Line chart, weekly time series | `date_week`, `primary_language`, `n_new_contributors` |
-| 2 | What's the median time from first PR to second? | Histogram + per-language bar | `language`, `days_to_second_pr` (per contributor) |
-| 3 | Which repos have bus-factor-of-1 risk vs healthy pyramids? | Scatter or table | `repo`, `n_active_contributors_last_90d`, `top_contributor_share` |
-| 4 | How does activity correlate with repo characteristics? | Scatter / aggregated table | `repo`, `stargazers`, `age`, `license`, `events_last_90d` |
+Add `transform/models/marts/aggregates/_models.yml` with PK
+uniqueness and expected-row-counts-per-week tests.
 
-Each panel reads from the OBT mart with appropriate filters and
-groupings.
+**Why:** The mart is the dashboard's contract; a silent row
+explosion or PK collision would corrupt every panel.
 
-### Materialization for the mart
+### 3. Materialize the mart
 
-```python
-{{ config(
-  materialized='table',
-  partition_by={'field': 'date_week', 'data_type': 'date', 'granularity': 'week'},
-  cluster_by=['primary_language']
-) }}
-```
+Run `dbt build --select mart_dashboard`.
 
-A `table` (not `incremental` — small enough to fully rebuild on
-schedule). Partitioned by week for inexpensive filter queries from
-the dashboard.
+**Why:** The dashboard can't connect to a table that doesn't exist
+yet; build before wiring Looker Studio.
 
-Refreshed by the same Dagster DAG that runs the rest of dbt.
+### 4. Create the Looker Studio report (~120 min)
 
-### BI Engine consideration
+Open Looker Studio; create a new report. Connect the data source:
+BigQuery → the `mart_dashboard` table. Build the four panels,
+iterating on visualization choices.
 
-BigQuery's BI Engine caches recent results in-memory. Reduces
-dashboard query latency from ~3 seconds to ~300ms.
+**Why — skip BI Engine:** BigQuery's BI Engine caches recent
+results in-memory, cutting dashboard latency from ~3s to ~300ms.
 
 | | Without BI Engine | With BI Engine |
 |---|---|---|
@@ -107,14 +147,22 @@ dashboard query latency from ~3 seconds to ~300ms.
 | Latency | 1-3s per panel | 100-300ms per panel |
 | Cache | Free 24h cache after first hit | Always warm |
 
-**Decision: skip BI Engine for the portfolio launch.** Without it,
-Looker Studio's first-load is ~3 seconds; subsequent are cached.
-For a portfolio dashboard with low traffic, the free path is
-fine.
+For a portfolio dashboard with low traffic, the free path is fine:
+first-load is ~3 seconds, subsequent loads are cached. Revisit if
+the dashboard becomes high-traffic.
 
-Revisit if dashboard becomes high-traffic.
+### 5. Share publicly and capture the artifacts
 
-### Declaring the exposure
+Share publicly: "Anyone with the link" → viewer. Capture the URL;
+screenshot for the README. Record both in a new
+`dashboards/looker-studio-link.md`.
+
+**Why:** The public link is the demo surface; recording it in-repo
+keeps it from getting lost.
+
+### 6. Declare the dbt exposure
+
+Create `transform/models/marts/_exposures.yml`:
 
 ```yaml
 # transform/models/marts/_exposures.yml
@@ -138,10 +186,23 @@ exposures:
       - ref('dim_users')
 ```
 
-After declaring, `dbt ls --select +exposure:contributor_lifecycle_dashboard`
-shows the entire upstream chain — lineage extends to the dashboard.
+**Why:** After declaring,
+`dbt ls --select +exposure:contributor_lifecycle_dashboard` shows
+the entire upstream chain — lineage extends to the dashboard.
 
-## Module layout
+### 7. Regenerate docs and verify lineage
+
+Regenerate dbt docs; verify the exposure appears in lineage as a
+node downstream of `mart_dashboard`.
+
+**Why:** Confirms the exposure is wired, not just declared.
+
+### 8. Update tracking docs
+
+Update README with the dashboard link + screenshot. LEARNING_LOG
+Week 7 entry. Flip `docs/workflow.md` Consumption ⏳ → ✅.
+
+Module layout touched this week:
 
 ```
 transform/models/marts/
@@ -157,23 +218,7 @@ README.md                              ← modify: add dashboard link + screensh
 docs/workflow.md                       ← modify: flip Consumption ⏳ → ✅
 ```
 
-## Implementation order
-
-1. Build `mart_dashboard` — the OBT joining fct + dims with the
-   columns each panel needs.
-2. Add tests on the mart (PK uniqueness, expected row counts per
-   week).
-3. Run `dbt build --select mart_dashboard` to materialize.
-4. Open Looker Studio; create a new report.
-5. Connect data source: BigQuery → the mart table.
-6. Build the four panels. Iterate on visualization choices.
-7. Share publicly: "Anyone with the link" → viewer.
-8. Capture the URL; screenshot for the README.
-9. Declare the exposure in `_exposures.yml`.
-10. Regenerate dbt docs; verify the exposure appears in lineage.
-11. Update README with the link.
-12. Update `docs/workflow.md` — flip Consumption ⏳ → ✅.
-13. LEARNING_LOG Week 7 entry.
+**Why:** Tracking docs ship with the work, not later.
 
 ## Verification
 
@@ -194,27 +239,6 @@ docs/workflow.md                       ← modify: flip Consumption ⏳ → ✅
 - [ ] `dbt docs` lineage shows the dashboard as a node.
 - [ ] README has dashboard URL + screenshot.
 - [ ] `docs/workflow.md` Consumption badge: ⏳ → ✅.
-
-## "Bus factor" definition (Panel 3)
-
-"Bus factor" is a folk term — the number of contributors a repo
-could lose before it stalls. We operationalize it as:
-
-```
-For each repo, in the last 90 days:
-  contributors = distinct actors with ≥ 3 events
-  top_share = max contributor's event count / total events
-  
-bus_factor_label =
-  case
-    when top_share > 0.8 then 'bus_factor_1'  // dominated by one person
-    when top_share > 0.5 then 'bus_factor_low' // one person is most events
-    else 'healthy_pyramid'
-  end
-```
-
-This is one of several possible definitions. Document the choice
-in the mart's description so analysts know what the column means.
 
 ## Out of scope
 

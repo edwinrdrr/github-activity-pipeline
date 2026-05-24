@@ -53,22 +53,53 @@ are worse than no tracking docs.
 
 ## Workflow
 
-### Use plan mode for non-trivial work
+### Build for real first, then write the reproducible tutorial
 
-If a task touches more than ~3 files, introduces a new GCP surface,
-needs a new ADR, or has multiple plausible designs — enter plan mode
-first. Confirmed pattern (Week 3 was planned this way, and the user
-explicitly chose "Plan mode first" when offered).
+**Order matters: execute the work, *then* document it.** You are an
+agent that executes — so don't pre-write a future week as a speculative
+plan, and don't fabricate a tutorial for work you haven't actually run.
+Build it for real (write the code, run `dbt build`, watch the tests
+pass), and only then write `docs/week-N.md` from the *real* commands and
+outputs you just observed. A file for unbuilt work is a thin stub at
+most.
 
-Trivial fixes (typos, single-line edits, log entries) don't need plan
-mode.
+Planning survives in exactly one narrow form: a **brief alignment
+checkpoint** before hard or hard-to-reverse work (a new GCP surface, a
+new ADR, an SCD2 grain, >~3 files, multiple plausible designs). That's a
+short conversation, *not* a document to maintain, and not a reason to
+defer doing. Trivial fixes don't need it.
 
-### Per-week file convention
+### Per-week file convention — `week-N.md` is a REPRODUCIBLE TUTORIAL
 
-Each week's work lives in **one** file: `docs/week-N.md`. Sections in
-order: `Status banner`, `Goal`, `Prereqs`, `Design decisions`,
-`Module layout` (if code), `Implementation`, `Verification` (with
-checkboxes), `Out of scope`, `What's next`.
+This was gotten wrong three times; read carefully. `docs/week-N.md` is
+**a step-by-step tutorial that lets someone rebuild that week's work
+from scratch** — the same shape as `week-0.md` (setup) and the
+`docs/learn-*` courses. It is **not** a design-essay *plan*, and it is
+**not** a terse past-tense *summary* that points at the ADR or the
+`.sql` files for the actual content.
+
+**The test it must pass:** *could someone wipe the repo, start from the
+previous week's end state, and rebuild this week by following only this
+file?* If the SQL isn't shown, or the commands/expected output aren't
+there, the answer is no — and the file isn't done.
+
+Every build step therefore shows all three:
+1. **The artifact, in full** — the complete `.sql`/`.yml` file content to
+   create, or the exact edit/diff to make. Show it inline even though it
+   duplicates the repo file; that duplication is what makes it
+   followable. Do **not** replace it with "see `dim_repos.sql`".
+2. **The exact command** — e.g. `make build ARGS='--select dim_repos'`.
+3. **The expected output** — the real result to check against
+   (`OK created … dim_repos (15.0 rows)`, `PASS=146 WARN=0`, a dry-run
+   byte count). Use the actual numbers you observed, not placeholders.
+
+Keep the *rationale* brief — one or two lines per step, or an ADR link
+for depth — but never let brevity remove the code, command, or output.
+Sections in order: `Status banner`, `Goal`, `Prereqs` (preconditions
+only), `## Steps` (numbered `### N.`, each with the three things above),
+`Verification` (checkboxes phrased as runnable checks with real
+results), `Out of scope`, `What's next`. No standalone `Design
+decisions` / `Module layout` walls.
 
 `week-0.md` is the one-time onboarding (was `setup.md`). Don't
 re-introduce the old `setup-week-N.md` / `week-N-plan.md` split —

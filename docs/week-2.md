@@ -15,11 +15,10 @@ Every source has a `stg_*` model + schema tests + freshness check.
 ## Prereqs
 
 You should have completed [`week-1.md`](./week-1.md): `dbt debug`
-green, `stg_gharchive__events` materializes.
+green, `stg_gharchive__events` materializes. Week 2 introduces no new
+GCP surfaces and no new external services.
 
-> Week 2 introduces no new GCP surfaces and no new external services.
-> The prereq work is small — install dbt packages, then internalize
-> two conventions before extending the staging layer.
+## Steps
 
 ### 1. Install dbt packages (~30 s)
 
@@ -37,13 +36,11 @@ Packages land under `transform/dbt_packages/` (gitignored).
 **Success check:** `transform/dbt_packages/` exists and contains
 folders for each package.
 
-### 2. Convention checkpoint (~2 min reading)
+### 2. Adopt per-source subfolder layout
 
-Week 2 codifies two conventions that the rest of the project leans on:
-
-**Per-source subfolder layout.** Staging models live in
-`models/staging/<source>/`, not flat in `models/staging/`. Each source
-has its own `_models.yml` and `_sources.yml`:
+Staging models live in `models/staging/<source>/`, not flat in
+`models/staging/`. Each source has its own `_models.yml` and
+`_sources.yml`:
 
 ```
 transform/models/staging/
@@ -58,32 +55,56 @@ transform/models/staging/
     stg_github_api__users.sql
 ```
 
-Future sources (Hacker News API, Stack Overflow dump, etc.) follow
-the same shape. The `dbt_project_evaluator` package enforces this —
-see its `fct_source_directories` / `fct_model_directories` audits.
+**Why:** future sources (Hacker News API, Stack Overflow dump, etc.)
+follow the same shape, and the `dbt_project_evaluator` package
+enforces it — see its `fct_source_directories` /
+`fct_model_directories` audits.
 
-**Status quo for sources.** The `github_api` source declaration in
-`transform/models/staging/github_api/_sources.yml` was *commented
-out* during Week 2 until Week 3 landed the real
-`raw_github_api.{repos,users}` tables. Until then, `stg_github_api__*`
-read from seeds in `transform/seeds/github_api/`.
+### 3. Add the `stg_github_api__*` placeholder models
 
-## Build work (summary)
+Add `stg_github_api__{repos,users}` backed by seeds in
+`transform/seeds/github_api/`. The `github_api` source declaration in
+`transform/models/staging/github_api/_sources.yml` stays *commented
+out* for now.
 
-The full breakdown lives in [`plan.md`'s Week 2 deliverables](./plan.md#week-2--flesh-out-the-staging-layer)
+**Why:** the real `raw_github_api.{repos,users}` tables don't land
+until Week 3. Until then, reading from seeds lets the staging layer
+compile and test without a live source; the commented-out source
+declaration is the status quo to flip on in Week 3.
+
+### 4. Document every staging column
+
+Fill in column descriptions for all `stg_*` models in their
+`_models.yml` files.
+
+### 5. Configure source freshness on `gharchive`
+
+Add a freshness check to the `gharchive` source.
+
+### 6. Add a second custom singular test
+
+Add `tests/singular/assert_orgs_dont_follow.sql` (beyond Week 1's
+existing singular test).
+
+### 7. Dedupe `stg_gharchive__events`
+
+After the `unique` test catches GH Archive's occasional duplicate
+rows, add a dedup step to `stg_gharchive__events`.
+
+**Why:** GH Archive emits occasional duplicate event rows; the
+`unique` test surfaces them and the dedup keeps downstream counts
+honest.
+
+### 8. Build and validate
+
+```bash
+make build ARGS='--select staging+'
+```
+
+The full breakdown also lives in
+[`plan.md`'s Week 2 deliverables](./plan.md#week-2--flesh-out-the-staging-layer)
 and the Week 2 entry in
 [`../LEARNING_LOG.md`](../LEARNING_LOG.md#week-2--fleshing-out-the-staging-layer).
-At a glance:
-
-- Add `stg_github_api__{repos,users}` placeholder models (backed by seeds).
-- Document every staging column in `_models.yml` files.
-- Configure source freshness on `gharchive`.
-- Add a second custom singular test
-  (`tests/singular/assert_orgs_dont_follow.sql`).
-- Refactor staging into per-source subfolders to satisfy the new
-  `dbt_project_evaluator` audits.
-- Dedupe `stg_gharchive__events` after the `unique` test catches GH
-  Archive's occasional duplicate rows.
 
 ## Verification
 

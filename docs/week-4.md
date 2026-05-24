@@ -32,11 +32,16 @@ in `transform/dbt_project.yml` already declares
 `marts.facts.+materialized: incremental` and
 `+on_schema_change: append_new_columns`.
 
-## Design decisions
+## Steps
 
-Recorded in
-[`adr/0003-incremental-strategy.md`](./adr/0003-incremental-strategy.md).
-Summary:
+### 1. Write ADR 0003 + this file (docs-first)
+
+Commit the design before the SQL, per the established cadence: ADR
+`docs/adr/0003-incremental-strategy.md` plus this `week-4.md`.
+
+**Why:** the incremental design has several load-bearing choices that
+need to stay discoverable in 6 months. Recorded in
+[`adr/0003-incremental-strategy.md`](./adr/0003-incremental-strategy.md):
 
 - `incremental_strategy='insert_overwrite'` — BQ has no row-level
   updates without a scan; partition-scoped writes are cheaper than
@@ -49,7 +54,17 @@ Summary:
 - Drop `event_payload` from the fact — per-event-type facts come
   later. Staging view stays as the ad-hoc escape hatch.
 
-## Module layout
+### 2. Fix the ADR-number typo in `plan.md`
+
+Correct `0002-incremental-strategy.md` → `0003-incremental-strategy.md`
+in `plan.md`.
+
+**Why:** keep the roadmap's ADR references pointing at the real file
+numbers before anyone follows the link.
+
+### 3. Write `fct_events.sql` + `_models.yml`
+
+Create the marts/facts module:
 
 ```
 transform/models/marts/
@@ -60,22 +75,46 @@ docs/adr/
   0003-incremental-strategy.md
 ```
 
-The `_models.yml` lives in the same folder as `fct_events.sql` per
-the dbt_project_evaluator structural audit (same convention we
-followed for the staging subfolders in Week 2 — see
-`stg_gharchive__events`'s sibling `_models.yml`).
-
 `fct_events.sql` ends with a `SELECT` of 11 columns (event_id,
 event_type, event_at, event_date, actor_id, actor_login, repo_id,
 repo_full_name, org_id, org_login, is_public). No `event_payload`.
 
-## Cost evidence
+**Why:** the `_models.yml` lives in the same folder as `fct_events.sql`
+per the dbt_project_evaluator structural audit (same convention we
+followed for the staging subfolders in Week 2 — see
+`stg_gharchive__events`'s sibling `_models.yml`). Dropping
+`event_payload` keeps the fact narrow; per-event-type facts will parse
+payloads later, and the staging view remains the ad-hoc escape hatch.
 
-The Week 4 verification requires demonstrating that an incremental
-run scans ≤10% of the bytes a full refresh scans. Measurement uses
-`INFORMATION_SCHEMA.JOBS_BY_PROJECT.total_bytes_billed` (not
-`total_bytes_processed` — billed is what BQ rounds to 10 MB minimums
-and what actually hits your wallet).
+### 4. Full-refresh run — capture the baseline
+
+```
+dbt run --select fct_events --full-refresh
+```
+
+Capture `total_bytes_billed` from
+`INFORMATION_SCHEMA.JOBS_BY_PROJECT`.
+
+**Why:** measure billed bytes, not `total_bytes_processed` — billed is
+what BQ rounds to 10 MB minimums and what actually hits your wallet.
+This run is the 100% baseline the incremental run is compared against.
+
+### 5. Incremental run — verify ≤10%
+
+```
+dbt run --select fct_events
+```
+
+(no `--full-refresh`). Capture `total_bytes_billed` again and confirm
+it is ≤10% of the baseline.
+
+**Why:** the deliverable is "an incremental run scans ≤10% of a full
+refresh." Two compounding wins drive the reduction: (a) the source
+view's `_TABLE_SUFFIX` pruning on GH Archive limits scans to recent
+monthly tables, and (b) the 3-day `event_date` filter limits even
+further to the most recent partitions.
+
+### 6. Measure incremental vs full-refresh cost
 
 Numbers from this project's measurement (2026-05-21):
 
@@ -85,31 +124,43 @@ Numbers from this project's measurement (2026-05-21):
 | `dbt run --select fct_events` (incremental) | 2.0 GiB | 58 s | **0.29%** ✅ |
 
 The incremental run is **~340× cheaper** in bytes scanned. The
-factor comes from two compounding wins: (a) the source view's
-`_TABLE_SUFFIX` pruning on GH Archive limits scans to recent
-monthly tables, and (b) the 3-day `event_date` filter limits even
-further to the most recent partitions. The deliverable was "≤10%" —
-we're two orders of magnitude under that.
-
+deliverable was "≤10%" — we're two orders of magnitude under that.
 Full refresh row count: 7.5 billion rows (16+ months of GH Archive
 events from 2024-01 forward).
 
-## Implementation order
+**Why:** the verification requires *evidence*, not a claim. Recording
+the measured table makes the cost win auditable.
 
-1. ADR 0003 + this file (docs-first commit, per the established
-   cadence).
-2. Fix the ADR-number typo in `plan.md` (`0002-incremental-strategy.md`
-   → `0003-incremental-strategy.md`).
-3. Write `fct_events.sql` and `_marts__models.yml`.
-4. `dbt run --select fct_events --full-refresh` — capture the
-   `total_bytes_billed`.
-5. `dbt run --select fct_events` (no `--full-refresh`) — capture
-   again, verify ≤10%.
-6. `dbt test --select fct_events` — all green.
-7. `dbt build --select staging+` from clean state — full pipeline
-   green.
-8. Flip `workflow.md` badge; tick `plan.md` checkboxes.
-9. `LEARNING_LOG.md` Week 4 entry; `LEARNING.md` topical entries.
+### 7. Test the fact
+
+```
+dbt test --select fct_events
+```
+
+All green (9/9 — schema + recency).
+
+**Why:** schema tests guard the column contract; the recency test
+confirms the incremental run actually advanced the data.
+
+### 8. Full pipeline build from clean state
+
+```
+dbt build --select staging+
+```
+
+Green across the whole DAG.
+
+**Why:** confirms the new fact composes with the staging layer end to
+end, not just in isolation.
+
+### 9. Flip tracking docs + log
+
+Flip the `workflow.md` marts badge, tick the `plan.md` Week 4
+checkboxes, add the `LEARNING_LOG.md` Week 4 entry and the topical
+`LEARNING.md` entries.
+
+**Why:** tracking docs ship in the same set of commits as the work —
+stale badges are worse than no badges.
 
 ## Verification
 
