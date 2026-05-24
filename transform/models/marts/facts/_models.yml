@@ -1,0 +1,88 @@
+version: 2
+
+models:
+  - name: fct_events
+    description: |
+      **Grain:** one row per public GitHub event (`event_id`).
+
+      Central fact for the dashboard. Sourced from the deduped
+      `stg_gharchive__events` view. Materialized as a BigQuery
+      incremental table, partitioned by `event_date`, clustered on
+      `(repo_id, event_type)`. Daily incremental runs use
+      `insert_overwrite` with a 3-day lookback for late arrivals;
+      see [`docs/adr/0003-incremental-strategy.md`](../../docs/adr/0003-incremental-strategy.md).
+
+      `event_payload` is intentionally dropped — per-event-type facts
+      (`fct_pull_requests`, `fct_issues`, …) will parse the payload
+      with typed columns in Week 5+. The staging view remains the
+      ad-hoc surface for direct payload access.
+    data_tests:
+      # Model-level test — dbt_utils.recency doesn't accept the
+      # column_name arg dbt would inject under columns:.
+      - dbt_utils.recency:
+          datepart: hour
+          field: event_at
+          interval: 48
+          config:
+            severity: warn
+    columns:
+      - name: event_id
+        description: "GH Archive event id (string). PK; unique per event."
+        data_tests:
+          - not_null
+          - unique:
+              config:
+                # Mirror the staging 7-day canary. Uniqueness is global,
+                # so a full scan would bill ~50-100 GB; the rolling
+                # window catches recent ingestion bugs cheaply.
+                where: "event_date >= date_sub(current_date(), interval 7 day)"
+      - name: event_type
+        description: "Event class, e.g. PushEvent, PullRequestEvent. Mirrors stg_gharchive__events.event_type."
+        data_tests:
+          - not_null
+          - accepted_values:
+              values:
+                - PushEvent
+                - PullRequestEvent
+                - IssuesEvent
+                - IssueCommentEvent
+                - PullRequestReviewEvent
+                - PullRequestReviewCommentEvent
+                - WatchEvent
+                - ForkEvent
+                - CreateEvent
+                - DeleteEvent
+                - ReleaseEvent
+                - PublicEvent
+                - MemberEvent
+                - GollumEvent
+                - CommitCommentEvent
+                - DiscussionEvent
+              config:
+                severity: warn
+      - name: event_at
+        description: "Event timestamp (UTC). Recency tested at the model level above."
+        data_tests:
+          - not_null
+      - name: event_date
+        description: "Date partition key (UTC). Derived from event_at by staging."
+        data_tests:
+          - not_null
+      - name: actor_id
+        description: "GitHub user id of the actor. FK to dim_users (Week 5)."
+        data_tests:
+          - not_null
+      - name: actor_login
+        description: "Actor login at event time (denormalized; can change over time)."
+      - name: repo_id
+        description: "GitHub repository id. FK to dim_repos (Week 5)."
+        data_tests:
+          - not_null
+      - name: repo_full_name
+        description: "owner/repo at event time (denormalized; renames are not back-filled)."
+      - name: org_id
+        description: "GitHub organization id if the repo belongs to one; null otherwise."
+      - name: org_login
+        description: "GitHub organization login if applicable."
+      - name: is_public
+        description: "Always true in GH Archive (only public events are published)."

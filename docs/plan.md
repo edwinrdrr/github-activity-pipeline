@@ -61,13 +61,14 @@ where the friction is highest (Weeks 1, 4, 5).
 
 **Goal:** the central fact table runs incrementally and is meaningfully cheaper than a full refresh.
 **Effort:** ~8 hours.
+**Detailed plan:** [week-4.md](./week-4.md)
 
 ### Deliverables
-- [ ] `models/marts/facts/fct_events.sql` with `is_incremental()` logic
-- [ ] Partitioned by `event_date`, clustered on `event_type` + `repo_id`
-- [ ] Incremental run scans ≤ ~10% of the bytes a full refresh scans
-- [ ] Documented in `_marts__models.yml` with explicit grain definition
-- [ ] ADR `docs/adr/0002-incremental-strategy.md` explaining the materialization choice
+- [x] `models/marts/facts/fct_events.sql` with `is_incremental()` logic
+- [x] Partitioned by `event_date`, clustered on `repo_id` + `event_type`
+- [x] Incremental run scans ≤ ~10% of the bytes a full refresh scans (actual: 0.29%)
+- [x] Documented in `_models.yml` with explicit grain definition
+- [x] ADR `docs/adr/0003-incremental-strategy.md` explaining the materialization choice
 
 ### Things to learn this week
 - `_TABLE_SUFFIX` vs partitioned-table pricing on BigQuery
@@ -80,6 +81,7 @@ where the friction is highest (Weeks 1, 4, 5).
 
 **Goal:** all dimensions live; `dim_users` and `dim_repos` track history correctly.
 **Effort:** ~10 hours. Budget extra — SCD2 is the part most candidates skip.
+**Detailed plan:** [week-5.md](./week-5.md)
 
 ### Deliverables
 - [ ] `dim_repos` (SCD2 on star-bucket + archived status)
@@ -87,7 +89,7 @@ where the friction is highest (Weeks 1, 4, 5).
 - [ ] `dim_languages`, `dim_date` (use `dbt_date` package)
 - [ ] Singular test `assert_scd2_no_overlap.sql` proving no overlapping validity windows
 - [ ] `dim_*` documented with column-level descriptions + tests on PKs/FKs
-- [ ] ADR `docs/adr/0003-scd2-design.md` explaining the contributor-tier history model
+- [ ] ADR `docs/adr/0004-scd2-design.md` explaining the contributor-tier history model
 
 ---
 
@@ -95,6 +97,7 @@ where the friction is highest (Weeks 1, 4, 5).
 
 **Goal:** the whole pipeline runs on a schedule, and PRs run `dbt build` in CI.
 **Effort:** ~6-8 hours.
+**Detailed plan:** [week-6.md](./week-6.md)
 
 ### Deliverables
 - [ ] Dagster job assets defined in `orchestration/dagster_project/`
@@ -109,6 +112,7 @@ where the friction is highest (Weeks 1, 4, 5).
 
 **Goal:** a public Looker Studio dashboard answers the four business questions.
 **Effort:** ~6 hours.
+**Detailed plan:** [week-7.md](./week-7.md)
 
 ### Deliverables
 - [ ] Looker Studio dashboard published with "anyone with the link" access
@@ -123,6 +127,7 @@ where the friction is highest (Weeks 1, 4, 5).
 
 **Goal:** the project is legible to a reviewer in 90 seconds.
 **Effort:** ~6 hours.
+**Detailed plan:** [week-8.md](./week-8.md)
 
 ### Deliverables
 - [ ] README has live dashboard link, architecture diagram (Mermaid), dbt docs link

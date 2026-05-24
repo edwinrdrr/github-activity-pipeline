@@ -94,15 +94,16 @@ Mermaid version deferred to the Week 8 README per
   CTEs, not materialized tables — they exist only at compile time.
 - May stay empty if marts don't need shared helpers.
 
-### Marts                            ⏳ Week 4-5
-- `fct_events` — central fact, one row per event. Incremental
-  materialization, partitioned by `event_date`, clustered on
-  `(event_type, repo_id)`. Week 4.
-- `dim_repos` — slowly changing dimension on the repo's
+### Marts                            🚧 in progress
+- `fct_events` ✅ — central fact, one row per public GitHub event.
+  Incremental materialization (insert_overwrite, 3-day lookback),
+  partitioned by `event_date`, clustered on `(repo_id, event_type)`.
+  Incremental run scans 0.29% of full-refresh bytes. Shipped Week 4.
+- `dim_repos` ⏳ — slowly changing dimension on the repo's
   star-bucket and archived status. SCD2. Week 5.
-- `dim_users` — SCD2 on contributor tier (new / regular / core).
+- `dim_users` ⏳ — SCD2 on contributor tier (new / regular / core).
   Week 5.
-- `dim_languages`, `dim_date` — simpler dimensions; `dim_date`
+- `dim_languages`, `dim_date` ⏳ — simpler dimensions; `dim_date`
   uses the `dbt_date` package.
 
 ### Consumption                      ⏳ Week 7
