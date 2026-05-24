@@ -34,7 +34,9 @@ full-refresh, no 167 GiB tier scan. This is what the Week-6 CI
 (`python -m ingestion.github_api_extractor run`) + the real GH Archive
 backfill. Re-runs the ~680 GiB `fct_events` full-refresh and the
 ~167 GiB contributor-tier scan — real dollars and minutes. Deliberate,
-not routine.
+not routine. (For a fresh **prod** specifically, `make bootstrap-prod`
+clones the already-built dev `fct_events` instead of re-backfilling — see
+[`week-6.md`](./week-6.md) step 11.)
 
 Steps (either mode):
 1. Clone the repo; read [`plan.md`](./plan.md).

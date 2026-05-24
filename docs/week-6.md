@@ -300,7 +300,35 @@ which cron fired and running `make pipeline-<mode> TARGET=prod`. Secrets:
 isn't duplicated — see [ADR 0006](./adr/0006-interchangeable-orchestrators.md).
 Pick one as the live scheduler; don't run both against `prod` at once.
 
-### 11. Add the README cost note + ADRs + tracking docs
+### 11. Bootstrap prod's `fct_events` before enabling the scheduler
+
+`fct_events` is incremental, so on a fresh `prod` dataset the table
+doesn't exist → `is_incremental()` is false → the 3-day lookback is
+skipped → the first prod build would scan the whole **~680 GiB** GH
+Archive backfill. Avoid it: clone dev's already-built table into prod with
+a BigQuery *copy* (preserves partitioning + clustering, bills no query
+bytes), then the first scheduled prod run is just the cheap incremental.
+
+```bash
+make bootstrap-prod ARGS="--dry-run"   # check source/dest first
+make bootstrap-prod                    # do the copy (run once, at prod-enable)
+```
+
+Dry-run output (real):
+```
+source: <project>.dbt_dev_edwin_marts.fct_events  (7,502,072,273 rows, 735.6 GiB,
+        partitioning=...field='event_date'...DAY, clustering=['repo_id', 'event_type'])
+dest:   <project>.prod_marts.fct_events
+```
+
+**Why:** incremental models only save money from the *second* run on — the
+first materialization always builds the full table. Since dev already paid
+the backfill in Week 4, copying it to prod skips a second one (a copy job
+is near-free; only the prod table's storage is ongoing). Seeding prod from
+a dev sandbox is a portfolio pragmatism; a stricter setup would let prod do
+its own one-time backfill.
+
+### 12. Add the README cost note + ADRs + tracking docs
 
 Add the `## Cost` section to the README (estimate from measured per-run
 bytes: ~0.8 TiB/mo, within BigQuery's 1 TiB free tier). Write
@@ -327,6 +355,10 @@ entry.
       Dagster's `daily_refresh`).
 - [ ] **scheduled-pipeline.yml live run** — written; pending push +
       secrets (`GCP_SA_KEY`, `GCP_PROJECT_ID`, `GCS_BUCKET`).
+- [x] **Prod cold-start bootstrap** — `make bootstrap-prod ARGS="--dry-run"`
+      resolves dev `fct_events` (7.5b rows, partitioned/clustered) →
+      `prod_marts.fct_events`. The real copy runs once at prod-enable so the
+      first scheduled prod run is incremental, not a 680 GiB backfill.
 
 ## Out of scope
 

@@ -45,22 +45,31 @@ source provides (and the metadata-vs-events history asymmetry).
 
 ## Cost
 
-Estimated from measured per-run bytes (to be confirmed against
-`INFORMATION_SCHEMA.JOBS_BY_PROJECT` after a month of scheduled runs, in
-Week 8):
+Two very different regimes — and the honest headline is that **the spend
+is in development, not steady-state**.
+
+**Steady-state (scheduled runs), measured per-run:**
 
 | Item | Bytes scanned | Cadence | ~Monthly |
 |---|---|---|---|
 | `fct_events` incremental | 2.0 GiB | daily | ~60 GiB |
 | staging + dims + audits | <1 GiB | daily | ~25 GiB |
 | contributor-tier rebuild (`dim_users`) | 167 GiB | **weekly** | ~720 GiB |
-| **Total queries** | | | **~0.8 TiB/mo** |
+| **Total queries** | | | **~0.8 TiB/mo** → within the 1 TiB free tier |
 
-At ~0.8 TiB/mo this stays **within BigQuery's 1 TiB/mo on-demand free
-tier → ~$0/mo in query cost.** The tier scan is kept weekly (not daily)
-precisely to stay under that line — see [`docs/week-5.md`](./docs/week-5.md).
-Storage (mostly `fct_events`) and the local Dagster + GitHub Actions
-free tiers are the only other costs, all negligible at this volume.
+So steady-state **query** cost is ~$0; the floor is **storage**:
+`fct_events` (7.5B rows ≈ 735 GiB) ≈ **$7–15/mo**. The weekly tier scan
+is kept off the daily path to stay under the free tier (see
+[`docs/week-5.md`](./docs/week-5.md)).
+
+**Development cost dominates.** Each full-history scan of the GH Archive
+backfill (`fct_events --full-refresh`, or a broad `stg_gharchive__events`
+query) bills **~680 GiB**. Iterating on the model in May ran dozens of
+those — **~$87 of the $300 trial credit** (measured via
+`INFORMATION_SCHEMA.JOBS_BY_USER`), all credit-covered ($0 out of pocket).
+Mitigations: daily runs are incremental (~2 GiB), `make bootstrap-prod`
+seeds prod with a copy job (0 scan bytes), and `gharchive_start_date` can
+be narrowed so the backfill spans months, not years.
 
 ## Engineering decisions
 
