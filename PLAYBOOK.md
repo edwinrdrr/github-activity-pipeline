@@ -104,12 +104,19 @@ What keeps "it reproduces" *true* over time:
 
 ## Adopting this in a repo
 
-1. Keep a roadmap file (`plan.md`) — all units, goals, deliverables.
-2. Name unit tutorials predictably (`week-N.md`, `milestone-N.md`, …);
-   `unit-0` is one-time setup.
-3. Add a short `building-this-project.md` that *instantiates* this
-   playbook: map these generic names to the repo's real files, and record
-   the project-specific reproduction details (real costs, fixtures, exact
-   commands).
-4. If you use an agent, encode these rules in its instructions file
-   (`CLAUDE.md` / `AGENTS.md`) so they're followed every session.
+**Minimum — and the only required step: copy this one file in.** The
+method is self-contained here; the whole thing is one sentence — *plan in
+one file; once you've built something, write a runnable tutorial for it;
+never fabricate.*
+
+Everything below is optional and happens *as you build*, not as up-front
+setup:
+
+- Keep a roadmap file (`plan.md`) for goals + deliverable checkboxes.
+- Name unit tutorials predictably (`week-N.md`, `milestone-N.md`, …),
+  `unit-0` for setup — each written when its unit is built, not before.
+- Add a short `building-this-project.md` only once there are
+  project-specific repro details worth recording (real costs, fixtures,
+  exact commands).
+- If the repo uses an agent, add one line to its `CLAUDE.md` / `AGENTS.md`
+  pointing here.
