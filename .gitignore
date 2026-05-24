@@ -42,3 +42,9 @@ data/
 
 # learning materials — kept local until ready to publish
 docs/learn/
+docs/learn-bigquery/
+docs/learn-warehousing/
+docs/learn-warehouse-steps/
+
+# claude-as-tool practice scenarios — local-only sandbox
+simulation-for-using-claude-as-tool/
