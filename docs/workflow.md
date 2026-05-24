@@ -120,6 +120,10 @@ Mermaid version deferred to the Week 8 README per
 - `daily_refresh` (06:00 UTC) = extract → load → `dbt build`, **excluding**
   the ~167 GiB tier subtree; `weekly_full_refresh` (Sun 07:00 UTC)
   includes it. Run-failure sensor → Slack (env-driven).
+- **Interchangeable** with a scheduled GitHub Actions workflow
+  (`scheduled-pipeline.yml`) that runs the same `make pipeline-daily` /
+  `pipeline-weekly` targets on cron — always-on, zero-infra. Both drive
+  the same building blocks; see ADR 0006.
 
 ### CI                               🚧 Week 6 (written; live run pending)
 - GitHub Actions workflow at `.github/workflows/dbt-ci.yml`.

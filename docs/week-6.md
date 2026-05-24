@@ -7,7 +7,12 @@
 > `dim_users`). The GitHub Actions CI workflow is written and made cheap;
 > its first *live* run is pending repo secrets + a PR.
 >
-> Companion to [`adr/0005-orchestrator-dagster.md`](./adr/0005-orchestrator-dagster.md).
+> A second, **interchangeable** orchestrator (a scheduled GitHub Actions
+> workflow) drives the *same* Make-target pipeline — see step 10 and
+> [`adr/0006-interchangeable-orchestrators.md`](./adr/0006-interchangeable-orchestrators.md).
+>
+> Companion to [`adr/0005-orchestrator-dagster.md`](./adr/0005-orchestrator-dagster.md)
+> and [`adr/0006-interchangeable-orchestrators.md`](./adr/0006-interchangeable-orchestrators.md).
 > Roadmap in [`plan.md` → Week 6](./plan.md#week-6--orchestration--ci).
 
 ## Goal
@@ -258,7 +263,44 @@ Set `SLACK_WEBHOOK_URL` in the environment Dagster runs in. The
 `notify_slack_on_failure` sensor posts on any run failure; with no URL set
 it's a no-op.
 
-### 10. Add the README cost note + ADR 0005 + tracking docs
+### 10. (Interchangeable) Drive the same pipeline from GitHub Actions cron
+
+`dagster dev` isn't always-on; a scheduled GitHub Actions workflow is —
+for free. Make both run the *same* pipeline by routing through shared
+Make targets (the single source of truth):
+
+```make
+TARGET ?= dev
+pipeline-daily:
+	python -m ingestion.github_api_extractor run
+	cd transform && dbt build --target $(TARGET) --exclude int_user_contributor_tier_snapshots+
+pipeline-weekly:
+	python -m ingestion.github_api_extractor run
+	cd transform && dbt build --target $(TARGET)
+```
+
+Verify the daily selection matches Dagster's (drops exactly the tier subtree):
+
+```bash
+cd transform
+dbt ls --resource-type model --output name --exclude "int_user_contributor_tier_snapshots+" | sort > /tmp/daily
+dbt ls --resource-type model --output name | sort | comm -23 - /tmp/daily
+```
+
+Expected: `dim_users` and `int_user_contributor_tier_snapshots` — the same
+two assets Dagster's `daily_refresh` excludes.
+
+Then add `.github/workflows/scheduled-pipeline.yml` (full file in the
+repo): daily + weekly `cron` + `workflow_dispatch`, picking the mode from
+which cron fired and running `make pipeline-<mode> TARGET=prod`. Secrets:
+`GCP_SA_KEY`, `GCP_PROJECT_ID`, and `GCS_BUCKET` (ingestion writes there);
+`GITHUB_TOKEN` is the auto-provided one (lifts the API rate limit).
+
+**Why:** both orchestrators call the same Make targets, so pipeline logic
+isn't duplicated — see [ADR 0006](./adr/0006-interchangeable-orchestrators.md).
+Pick one as the live scheduler; don't run both against `prod` at once.
+
+### 11. Add the README cost note + ADRs + tracking docs
 
 Add the `## Cost` section to the README (estimate from measured per-run
 bytes: ~0.8 TiB/mo, within BigQuery's 1 TiB free tier). Write
@@ -279,6 +321,12 @@ entry.
 - [ ] **CI live run** — workflow written + made cheap; pending repo
       secrets (`GCP_SA_KEY`, `GCP_PROJECT_ID`) + a first PR.
 - [ ] **Slack delivery** — pending a real `SLACK_WEBHOOK_URL`.
+- [x] **Interchangeable orchestrator**: `make -n pipeline-daily` expands to
+      the extractor run + `dbt build --exclude int_user_contributor_tier_snapshots+`,
+      and that exclusion drops exactly `dim_users` + the tier (same as
+      Dagster's `daily_refresh`).
+- [ ] **scheduled-pipeline.yml live run** — written; pending push +
+      secrets (`GCP_SA_KEY`, `GCP_PROJECT_ID`, `GCS_BUCKET`).
 
 ## Out of scope
 
@@ -289,6 +337,9 @@ entry.
 - **Success notifications** — the sensor fires on failure only (by design).
 - **Incremental contributor-tier** — would remove both the weekly scan and
   `dim_users` staleness; deferred (ADR 0004/0005).
+- **Running both schedulers against `prod` at once** — Dagster and the
+  GitHub Actions cron are interchangeable, not concurrent; pick one as the
+  live scheduler (ADR 0006).
 
 ## What's next
 

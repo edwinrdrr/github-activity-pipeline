@@ -1,0 +1,69 @@
+name: scheduled pipeline
+
+# The second, interchangeable orchestrator (see ADR 0006). Runs the same
+# canonical Make-target pipeline as Dagster, but driven by GitHub Actions
+# cron instead of the Dagster daemon — a zero-infra, always-on scheduler.
+# Targets the `prod` dbt dataset.
+#
+# Required repo secrets: GCP_SA_KEY, GCP_PROJECT_ID, GCS_BUCKET.
+# Optional: SLACK_WEBHOOK_URL (failure alerts).
+on:
+  schedule:
+    - cron: "0 6 * * *"   # daily   — 06:00 UTC
+    - cron: "0 7 * * 0"   # weekly  — Sunday 07:00 UTC (full rebuild, incl. tier)
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Which pipeline to run"
+        default: daily
+        type: choice
+        options: [daily, weekly]
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    env:
+      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      GCS_BUCKET: ${{ secrets.GCS_BUCKET }}
+      # The auto-provided token lifts the GitHub API rate limit (public reads).
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/sa.json
+      DBT_PROFILES_DIR: ${{ github.workspace }}/transform
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Write service-account key
+        run: printf '%s' '${{ secrets.GCP_SA_KEY }}' > "$GOOGLE_APPLICATION_CREDENTIALS"
+
+      - name: Stage profiles.yml
+        run: cp transform/profiles.yml.example transform/profiles.yml
+
+      - name: dbt deps
+        run: cd transform && dbt deps
+
+      - name: Pick mode (weekly on the Sunday cron, else daily)
+        id: mode
+        run: |
+          if [ "${{ github.event.schedule }}" = "0 7 * * 0" ] || [ "${{ inputs.mode }}" = "weekly" ]; then
+            echo "mode=weekly" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=daily" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run the canonical pipeline (prod)
+        run: make pipeline-${{ steps.mode.outputs.mode }} TARGET=prod
+
+      - name: Slack alert on failure
+        if: failure() && env.SLACK_WEBHOOK_URL != ''
+        run: |
+          curl -s -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\":red_circle: scheduled pipeline (${{ steps.mode.outputs.mode }}) failed — run ${{ github.run_id }}\"}" \
+            "$SLACK_WEBHOOK_URL"
