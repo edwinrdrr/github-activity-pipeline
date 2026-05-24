@@ -4,6 +4,12 @@
 > confirmed live. Incremental run scanned **0.29%** of the full-refresh
 > bytes (deliverable: ≤10%). Retrospective lives in
 > [`../LEARNING_LOG.md`](../LEARNING_LOG.md#week-4--fct_events-incremental--partitioned).
+>
+> **Later change (2026-05-25):** `fct_events` was capped to a rolling
+> **90-day** window (`partition_expiration_days=90` + a 90-day
+> full-refresh filter) to cut storage from 735 GiB to ~31 GiB. The
+> numbers below are the original all-history measurements; the current
+> model carries the cap — see [ADR 0003](./adr/0003-incremental-strategy.md).
 
 This file is a reproducible tutorial: starting from the Week-3 end
 state, following only these steps rebuilds `fct_events`. Every build

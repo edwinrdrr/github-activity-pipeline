@@ -57,10 +57,14 @@ is in development, not steady-state**.
 | contributor-tier rebuild (`dim_users`) | 167 GiB | **weekly** | ~720 GiB |
 | **Total queries** | | | **~0.8 TiB/mo** → within the 1 TiB free tier |
 
-So steady-state **query** cost is ~$0; the floor is **storage**:
-`fct_events` (7.5B rows ≈ 735 GiB) ≈ **$7–15/mo**. The weekly tier scan
-is kept off the daily path to stay under the free tier (see
-[`docs/week-5.md`](./docs/week-5.md)).
+So steady-state **query** cost is ~$0; the floor is **storage**.
+`fct_events` was capped to a **rolling 90-day window**
+(`partition_expiration_days=90` + a 90-day full-refresh filter), which
+took it from 735 GiB / 7.5B rows down to **~31 GiB / 324M rows** — the
+whole project now stores **~31 GiB (≈ $0.6/mo)**, well under 100 GB. The
+weekly tier scan is kept off the daily path to stay under the free tier
+(see [`docs/week-5.md`](./docs/week-5.md)); the window cap is
+[ADR 0003](./docs/adr/0003-incremental-strategy.md).
 
 **Development cost dominates.** Each full-history scan of the GH Archive
 backfill (`fct_events --full-refresh`, or a broad `stg_gharchive__events`

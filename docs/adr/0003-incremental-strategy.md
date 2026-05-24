@@ -89,3 +89,28 @@ facts come later.
   Trivial in absolute terms; mentioned for completeness so a future
   optimization pass doesn't try to "improve" it by hand-listing
   partitions.
+
+## Update — rolling 90-day window (2026-05-25)
+
+`fct_events` is now a **rolling 90-day fact**, not all-history. Two
+config changes:
+
+- `partition_expiration_days=90` — partitions older than 90 days expire
+  automatically, so daily incremental runs don't accumulate storage.
+- The non-incremental (full-refresh) branch filters
+  `event_date >= date_sub(current_date(), interval 90 day)`, so a
+  full-refresh rebuilds only the last 90 days (~31 GiB scan) instead of
+  re-scanning the entire GH Archive backfill.
+
+**Why:** the original all-history table reached **735 GiB / 7.5B rows**,
+and repeated full-history scans during development burned ~$87 of trial
+credit in a month. Capping to 90 days drops storage to **~31 GiB**
+(324M rows), keeps the whole project footprint under 100 GB, makes
+full-refreshes cheap, and shrinks the weekly contributor-tier scan.
+
+**Trade-offs:** deep history is gone — the dashboard is a recent-window
+view (90 days is enough for its trend + 90-day-bus-factor panels). And
+`contributor_tier` is now derived from 90-day event history, so
+"first event ever" effectively means "first event within the window."
+Acceptable given the project prioritizes a small, cheap footprint over
+long history. Widen the window (and the var/expiration) if that changes.
