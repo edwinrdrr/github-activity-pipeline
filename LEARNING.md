@@ -753,6 +753,17 @@ int_user_contributor_tier_snapshots+` and Dagster
 `AssetSelection.keys(...).downstream()` — verified to drop the same two
 models. (W6 — see ADR 0006.)
 
+### Incremental models have a cold-start cost; clone to bootstrap (W6)
+
+An incremental model saves money only from the *second* run on. On a
+fresh target the table doesn't exist, so `is_incremental()` is false, the
+incremental `where` filter is skipped, and dbt builds the **whole** table
+— for `fct_events` that's the full ~680 GiB GH Archive backfill. Since dev
+already paid that, seed prod with a BigQuery **copy** of the dev table
+(`client.copy_table(...)` / `bq cp`) — it preserves partitioning +
+clustering and bills no query bytes — then dbt runs incrementally on top.
+`make bootstrap-prod` does this. (W6)
+
 ### CI for a BigQuery project: transform, don't ingest (W6)
 
 PR CI doesn't need a GitHub token or GCS — it reads the *existing*
