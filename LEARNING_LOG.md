@@ -209,6 +209,29 @@ show how I think and unstick myself, not to look polished.
 
 ---
 
+## Week 7 — Dashboard marts + exposure
+**Dates:** 2026-05-25 → 2026-05-25
+**Hours:** ~_TBD_
+
+### What I built
+- Three pre-aggregated marts under `models/marts/aggregates/`, one per dashboard question: `mart_repo_health` (per tracked repo: bus-factor label + characteristics, Q3/Q4), `mart_language_contributor_trends` (language × week new contributors, Q1), `mart_pr_velocity` (per contributor first→second-PR days, Q2). All `table`, KB-scale, PASS=14.
+- A dbt `exposure` (`contributor_health_dashboard`) in `models/marts/_exposures.yml` depending on the three marts — lineage now runs from `fct_events` to the dashboard.
+- Panel specs (which mart → which chart → which fields) handed off for the Looker Studio build.
+
+### What I learned
+- **GH Archive has no metadata, so the dashboard is honestly a curated-set view.** Language/stars/license only exist for the ~15 repos in `dim_repos` (from the API). Q1/Q3/Q4 are scoped to those repos; only Q2 (PR velocity) could be broad. Naming the limitation is more honest than pretending it's "all of OSS".
+- **Cluster pruning makes target-scoped aggregates nearly free.** Filtering `fct_events` (clustered on `repo_id, event_type`) by the ~15 tracked `repo_id`s scanned **622 MiB**, not the 31 GiB table — the marts cost cents. Filtering `event_type='PullRequestEvent'` prunes too (cluster prefix).
+- **Real numbers validated the logic:** tensorflow `top_contributor_share=0.905` → bus_factor_1 (bot-dominated, plausible), pytorch healthy_pyramid, median first→second PR 2.0 days.
+
+### What I got stuck on
+- The "new contributor" metric is a bit degenerate with only a 90-day window — every contributor's "first seen" is inside the window, so new ≈ active. A real multi-quarter window would separate them. Window limitation, not a logic bug.
+
+### Open questions / to revisit
+- **Publishing the Looker Studio dashboard** is manual (browser) — the URL goes into `_exposures.yml` + README afterward.
+- Whether to ingest metadata for more repos (broaden the dashboard) or keep the curated-set framing. Curated is fine for the portfolio.
+
+---
+
 ## Entry template (copy for each new week)
 
 ```
