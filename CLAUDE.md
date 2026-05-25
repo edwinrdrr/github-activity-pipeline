@@ -159,9 +159,9 @@ doesn't happen again. The portable version is in
 - **A hard guardrail is wired:** `maximum_bytes_billed: 100 GiB` in every
   dbt profile target. BigQuery rejects (for free) any query that would
   exceed it — which is what now blocks an accidental full-history scan.
-- **Dry-run before any big scan.** A BigQuery dry-run reports bytes for
-  free — check it before running a query/build that might scan more than
-  ~10 GB. (We dry-ran the 167 GiB tier scan before paying for it.)
+- **Dry-run before any big scan.** Run **`make estimate ARGS='--select
+  <model>'`** — it dry-runs (free) and flags anything over the cap. Do
+  this before any query/build that might scan more than ~10 GB.
 - **Never `--full-refresh` a large model casually.** Incremental models
   only save from the 2nd run on; the cold-start full build re-scans
   everything (~680 GiB here) — that was the $87. Build it once, or
@@ -175,6 +175,24 @@ doesn't happen again. The portable version is in
   (free) gives bytes-billed per day/job — use it to find what's spending.
 - **Stay inside the free tier where you can.** BigQuery: 1 TiB/mo
   queries + 10 GB storage free. Design steady-state runs to fit.
+
+### Guardrails to enable on **every** project — day one, before building
+
+Don't rely on discipline alone; turn on the enforcement up front. In this
+repo the first two are done; the last two are GCP console steps (no
+`gcloud` here) and should be set once:
+
+1. **`maximum_bytes_billed` in the dbt profile** (every target) — done
+   here at 100 GiB. The hard per-query stop.
+2. **Rolling window + `partition_expiration_days`** on any fact over a
+   large source — done here (90 days).
+3. **A GCP billing budget + alerts** — Console → *Billing → Budgets &
+   alerts → Create budget* → scope to the project, set thresholds (e.g.
+   50% / 90% / 100% of your monthly cap or the credit) with email alerts.
+4. **A BigQuery per-day query quota** — Console → *IAM & Admin → Quotas*
+   → filter "BigQuery API" → *Query usage per day* (and *per user*) → set
+   a TiB/day limit. This is the project-wide hard cap that also catches
+   console/ad-hoc queries the dbt cap can't see.
 
 ---
 

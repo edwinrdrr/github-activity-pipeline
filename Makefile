@@ -1,4 +1,4 @@
-.PHONY: help debug deps seed run test build compile clean dagster pipeline-daily pipeline-weekly
+.PHONY: help debug deps seed run test build compile clean dagster pipeline-daily pipeline-weekly bootstrap-prod estimate
 
 # Auto-load .env and export every var to recipe subshells, so dbt's
 # env_var() calls in profiles.yml see GOOGLE_APPLICATION_CREDENTIALS etc.
@@ -72,3 +72,8 @@ pipeline-weekly:
 # the prod scheduler. See docs/week-6.md + scripts/bootstrap_prod_fct_events.py.
 bootstrap-prod:
 	python scripts/bootstrap_prod_fct_events.py $(ARGS)
+
+# Cost estimate: dry-run selected models (free) and flag anything over the
+# 100 GiB cap. "Dry-run before a big scan" made a one-liner. See CLAUDE.md.
+estimate:
+	python scripts/dbt_dry_run.py $(ARGS)

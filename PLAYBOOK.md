@@ -129,6 +129,20 @@ during development burned ~$87 of credit before anyone noticed.
   (free) to find what actually spent the money, before optimizing.
 - **Know the free tier** and design steady-state runs to fit inside it.
 
+**Turn on the enforcement day one — don't rely on discipline alone:**
+
+1. A **per-query byte cap** in the tool's connection config (BigQuery:
+   `maximum_bytes_billed`; Snowflake: a statement timeout / warehouse
+   size). Rejects an over-budget query before it runs.
+2. **Rolling window + partition expiration** on any table built from a
+   large source, so storage and re-scan cost stay bounded.
+3. A **billing budget with alerts** at the cloud level (e.g. 50/90/100%
+   thresholds, emailed). Catches *all* spend, not just one tool's.
+4. A **per-day usage/bytes quota** at the project level — the hard cap
+   that also catches console/ad-hoc queries the tool-level cap can't see.
+5. A **one-command cost estimate** in your build tooling (a dry-run
+   wrapper) so "estimate before you run" is frictionless.
+
 ## Adopting this in a repo
 
 **Minimum — and the only required step: copy this one file in.** The
