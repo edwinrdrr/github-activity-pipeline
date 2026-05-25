@@ -295,6 +295,11 @@ which cron fired and running `make pipeline-<mode> TARGET=prod`. Secrets:
 `GCP_SA_KEY`, `GCP_PROJECT_ID`, and `GCS_BUCKET` (ingestion writes there);
 `GITHUB_TOKEN` is the auto-provided one (lifts the API rate limit).
 
+> The `schedule:` cron is **commented out by default** (manual-only via
+> "Run workflow") so the project doesn't run an always-on prod job — and
+> keep a second ~66 GiB prod copy — until you choose to. Uncomment it to
+> go always-on. See the file header and ADR 0006.
+
 **Why:** both orchestrators call the same Make targets, so pipeline logic
 isn't duplicated — see [ADR 0006](./adr/0006-interchangeable-orchestrators.md).
 Pick one as the live scheduler; don't run both against `prod` at once.

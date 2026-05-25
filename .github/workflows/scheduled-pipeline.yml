@@ -2,15 +2,20 @@ name: scheduled pipeline
 
 # The second, interchangeable orchestrator (see ADR 0006). Runs the same
 # canonical Make-target pipeline as Dagster, but driven by GitHub Actions
-# cron instead of the Dagster daemon — a zero-infra, always-on scheduler.
-# Targets the `prod` dbt dataset.
+# instead of the Dagster daemon. Targets the `prod` dbt dataset.
+#
+# MANUAL-ONLY for now: the daily/weekly `schedule:` cron is commented out so
+# the project doesn't run an always-on prod job (and rebuild ~66 GiB of prod
+# storage) until you choose to. Trigger it from the Actions tab via "Run
+# workflow" (workflow_dispatch). To make it always-on, uncomment `schedule:`
+# below and add the repo secrets.
 #
 # Required repo secrets: GCP_SA_KEY, GCP_PROJECT_ID, GCS_BUCKET.
 # Optional: SLACK_WEBHOOK_URL (failure alerts).
 on:
-  schedule:
-    - cron: "0 6 * * *"   # daily   — 06:00 UTC
-    - cron: "0 7 * * 0"   # weekly  — Sunday 07:00 UTC (full rebuild, incl. tier)
+  # schedule:
+  #   - cron: "0 6 * * *"   # daily   — 06:00 UTC
+  #   - cron: "0 7 * * 0"   # weekly  — Sunday 07:00 UTC (full rebuild, incl. tier)
   workflow_dispatch:
     inputs:
       mode:

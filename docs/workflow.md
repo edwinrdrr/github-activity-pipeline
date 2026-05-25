@@ -122,7 +122,8 @@ Mermaid version deferred to the Week 8 README per
   includes it. Run-failure sensor → Slack (env-driven).
 - **Interchangeable** with a scheduled GitHub Actions workflow
   (`scheduled-pipeline.yml`) that runs the same `make pipeline-daily` /
-  `pipeline-weekly` targets on cron — always-on, zero-infra. Both drive
+  `pipeline-weekly` targets — cron disabled by default (manual `Run
+  workflow`); uncomment `schedule:` to go always-on. Both drive
   the same building blocks; see ADR 0006.
 
 ### CI                               🚧 Week 6 (written; live run pending)
