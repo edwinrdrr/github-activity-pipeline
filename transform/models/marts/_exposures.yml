@@ -1,0 +1,22 @@
+version: 2
+
+exposures:
+  - name: contributor_health_dashboard
+    label: "OSS Contributor Health (Looker Studio)"
+    type: dashboard
+    maturity: medium
+    # Published Looker Studio link — fill in once the dashboard is shared
+    # "anyone with the link". Until then this records the intended exposure
+    # and the lineage from the marts to the dashboard.
+    url: "https://lookerstudio.google.com/"
+    description: |
+      Public Looker Studio dashboard answering the four README questions
+      about OSS contributor-lifecycle health, for the curated set of
+      tracked repos. Reads the three aggregate marts below.
+    depends_on:
+      - ref('mart_repo_health')
+      - ref('mart_language_contributor_trends')
+      - ref('mart_pr_velocity')
+    owner:
+      name: Edwin Reyhan
+      email: edwinrdrr@gmail.com

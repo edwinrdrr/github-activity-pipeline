@@ -115,11 +115,11 @@ where the friction is highest (Weeks 1, 4, 5).
 **Detailed plan:** [week-7.md](./week-7.md)
 
 ### Deliverables
-- [ ] Looker Studio dashboard published with "anyone with the link" access
-- [ ] Four panels matching the README's stated questions
-- [ ] dbt `exposure` declared in `models/marts/_marts__exposures.yml` pointing to the dashboard
-- [ ] BI Engine or a pre-aggregated `mart_dashboard_*` table keeps query cost trivial
-- [ ] Dashboard URL added to README
+- [ ] Looker Studio dashboard published with "anyone with the link" access _(manual; panel specs in week-7.md)_
+- [ ] Four panels matching the README's stated questions _(specs ready; build in Looker Studio)_
+- [x] dbt `exposure` declared in `models/marts/_exposures.yml` pointing to the dashboard
+- [x] Pre-aggregated marts keep query cost trivial (`mart_repo_health`, `mart_language_contributor_trends`, `mart_pr_velocity` — ~KB each)
+- [ ] Dashboard URL added to README _(after publishing)_
 
 ---
 

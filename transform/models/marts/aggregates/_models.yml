@@ -1,0 +1,46 @@
+version: 2
+
+models:
+  - name: mart_repo_health
+    description: |
+      **Grain:** one row per tracked repo (last 90 days). Powers the
+      bus-factor (Q3) and activity-vs-characteristics (Q4) dashboard
+      panels. Scoped to `dim_repos` (the repos we have metadata for).
+      `bus_factor_label`: bus_factor_1 (top contributor > 80% of events),
+      bus_factor_low (> 50%), healthy_pyramid, or inactive.
+    columns:
+      - name: repo_id
+        data_tests: [not_null, unique]
+      - name: repo_full_name
+        data_tests: [not_null]
+      - name: bus_factor_label
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: [bus_factor_1, bus_factor_low, healthy_pyramid, inactive]
+
+  - name: mart_language_contributor_trends
+    description: |
+      **Grain:** one row per (language, week). Powers Q1 — new contributors
+      per language over time, for tracked repos. A new contributor is an
+      actor whose first event on a tracked repo (in the window) fell in
+      that week.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [language, week_start]
+    columns:
+      - name: language
+        data_tests: [not_null]
+      - name: new_contributors
+        data_tests: [not_null]
+
+  - name: mart_pr_velocity
+    description: |
+      **Grain:** one row per contributor who opened ≥2 PRs on tracked repos
+      in the window. Powers Q2 — the dashboard takes the median of
+      `days_to_second_pr`.
+    columns:
+      - name: actor_id
+        data_tests: [not_null, unique]
+      - name: days_to_second_pr
+        data_tests: [not_null]
