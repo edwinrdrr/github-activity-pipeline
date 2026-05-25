@@ -106,21 +106,40 @@ Looker Studio `url` (placeholder until published). Then
 `dbt docs generate` shows the dashboard as a node downstream of the
 marts → lineage reaches the dashboard.
 
-### 6. Build the Looker Studio dashboard (manual — your part)
+### 6. Build the Looker Studio dashboard (manual — browser only)
 
-In [Looker Studio](https://lookerstudio.google.com): **Create → Data
-source → BigQuery** → add the three marts as data sources. Then four
-panels:
+This is the one step that can't be `make`-run or verified from the repo —
+it's GUI work in [Looker Studio](https://lookerstudio.google.com), so
+these are the steps to follow, not a verified reproduction.
 
-| # | Question | Mart | Chart | Fields |
+**6a. Connect the marts.** Sign in with the Google account that has
+BigQuery access to the project → **Create → Report** (it opens the
+"Add data" panel) → **BigQuery** connector → authorize → pick project
+`ithub-activity-pipeline` → dataset `dbt_dev_marts` (or `prod_marts`) →
+table **`mart_repo_health`** → **Add**. Then add the other two: **Resource
+→ Manage added data sources → Add a data source** → repeat for
+`mart_language_contributor_trends` and `mart_pr_velocity`.
+
+**6b. Add the four charts** (**Insert → <chart>**, then set its data
+source + fields in the right-hand panel):
+
+| # | Question | Data source | Chart | Fields |
 |---|---|---|---|---|
-| 1 | Languages gaining/losing new contributors | `mart_language_contributor_trends` | Time series (line) | dim `week_start`, breakdown `language`, metric `sum(new_contributors)` |
-| 2 | First → second PR time | `mart_pr_velocity` | Histogram (or scorecard for the median) | metric `days_to_second_pr` (distribution; median ≈ 2.0d) |
-| 3 | Bus-factor risk | `mart_repo_health` | Table or bar, sorted | dims `repo_full_name`, `bus_factor_label`; metrics `top_contributor_share`, `contributors_90d` |
-| 4 | Activity vs repo characteristics | `mart_repo_health` | Scatter | X `stargazers_count` (or `repo_age_days`), Y `events_90d`, bubble color `primary_language` |
+| 1 | Languages gaining/losing new contributors | `mart_language_contributor_trends` | Time series (line) | Dimension `week_start`; Breakdown dimension `language`; Metric `new_contributors` (SUM) |
+| 2 | First → second PR time | `mart_pr_velocity` | Scorecard (median) + Histogram | Metric `days_to_second_pr` — Scorecard agg = Median (≈ 2.0d); histogram for the distribution |
+| 3 | Bus-factor risk | `mart_repo_health` | Table, sorted desc by `top_contributor_share` | Dimensions `repo_full_name`, `bus_factor_label`; Metrics `top_contributor_share`, `contributors_90d` |
+| 4 | Activity vs repo characteristics | `mart_repo_health` | Scatter | Metric X `stargazers_count` (or `repo_age_days`); Metric Y `events_90d`; Bubble color dimension `primary_language` |
 
-Then **Share → "Anyone with the link" → Viewer**, copy the URL into
-`_exposures.yml` and the README, and screenshot it for the README.
+**6c. Title + caption.** Add a title ("OSS Contributor Health — tracked
+repos, last 90 days") and a text box noting the curated-15-repos scope.
+
+**6d. Publish.** **Share → Manage access → "Anyone with the link" →
+Viewer** → copy the report URL.
+
+**6e. Wire the link back.** Give me the URL (or do it yourself): replace
+the placeholder in `transform/models/marts/_exposures.yml`, add it to the
+README header, and drop a screenshot into the README. That closes the
+exposure lineage and the Week-7 deliverables.
 
 ## Verification
 
